@@ -70,20 +70,51 @@ const EVENT_RULES = [
 const CITY_PATTERNS = new Map([
   ["Settat", [/سطات/i, /\bsettat\b/i]],
   ["Casablanca", [/الدار\s+البيضاء/i, /\bcasablanca\b/i]],
-  ["Rabat", [/\bالرباط\b/i, /\brabat\b/i]],
-  ["Marrakech", [/\bمراكش\b/i, /\bmarrakech\b/i]],
-  ["Tangier", [/\bطنجه\b/i, /\btanger\b/i, /\btangier\b/i]],
-  ["Fes", [/\bفاس\b/i, /\bfes\b/i, /\bfez\b/i]],
-  ["Meknes", [/\bمكناس\b/i, /\bmeknes\b/i]],
-  ["Agadir", [/\bاكادير\b/i, /\bagadir\b/i]],
-  ["Kenitra", [/\bالقنيطره\b/i, /\bkenitra\b/i]],
+  ["Rabat", [/الرباط/i, /\brabat\b/i]],
+  ["Sale", [/سلا/i, /\bsal[eé]\b/i]],
+  ["Temara", [/تماره/i, /\btemara\b/i, /\bt[eé]mara\b/i]],
+  ["Marrakech", [/مراكش/i, /\bmarrakech\b/i]],
+  ["Tangier", [/طنجه/i, /\btanger\b/i, /\btangier\b/i]],
+  ["Tetouan", [/تطوان/i, /\bt[eé]touan\b/i, /\btetouan\b/i]],
+  ["Fes", [/فاس/i, /\bfes\b/i, /\bfez\b/i]],
+  ["Meknes", [/مكناس/i, /\bmeknes\b/i, /\bmekn[eè]s\b/i]],
+  ["Agadir", [/اكادير/i, /\bagadir\b/i]],
+  ["Inezgane", [/انزكان/i, /\binezgane\b/i]],
+  ["Ait Melloul", [/ايت\s+ملول/i, /\ba[iï]t\s+melloul\b/i]],
+  ["Kenitra", [/القنيطره/i, /\bkenitra\b/i, /\bk[eé]nitra\b/i]],
   ["El Jadida", [/الجديده/i, /\bel\s+jadida\b/i]],
   ["Mohammedia", [/المحمديه/i, /\bmohammedia\b/i]],
   ["Beni Mellal", [/بني\s+ملال/i, /\bbeni\s+mellal\b/i]],
-  ["Oujda", [/\bوجده\b/i, /\boujda\b/i]],
-  ["Safi", [/\bاسفي\b/i, /\bsafi\b/i]],
-  ["Khouribga", [/\bخريبكه\b/i, /\bkhouribga\b/i]],
-  ["Berrechid", [/\bبرشيد\b/i, /\bberrechid\b/i]],
+  ["Oujda", [/وجده/i, /\boujda\b/i]],
+  ["Nador", [/الناظور/i, /\bnador\b/i]],
+  ["Berkane", [/بركان/i, /\bberkane\b/i]],
+  ["Safi", [/اسفي/i, /\bsafi\b/i]],
+  ["Khouribga", [/خريبكه/i, /\bkhouribga\b/i]],
+  ["Berrechid", [/برشيد/i, /\bberrechid\b/i]],
+  ["Benslimane", [/بنسليمان/i, /\bbenslimane\b/i]],
+  ["Bouskoura", [/بوسكوره/i, /\bbouskoura\b/i]],
+  ["Nouaceur", [/النواصر/i, /\bnouaceur\b/i]],
+  ["Mediouna", [/مديونه/i, /\bmediouna\b/i]],
+  ["Larache", [/العرائش/i, /\blarache\b/i]],
+  ["Ksar El Kebir", [/القصر\s+الكبير/i, /\bksar\s+el\s+kebir\b/i]],
+  ["Taza", [/تازه/i, /\btaza\b/i]],
+  ["Ifrane", [/افران/i, /\bifrane\b/i]],
+  ["Khenifra", [/خنيفـ?ره/i, /\bkhenifra\b/i]],
+  ["Errachidia", [/الرشيديه/i, /\berrachidia\b/i]],
+  ["Ouarzazate", [/ورزازات/i, /\bouarzazate\b/i]],
+  ["Essaouira", [/الصويره/i, /\bessaouira\b/i]],
+  ["Taroudant", [/تارودانت/i, /\btaroudant\b/i]],
+  ["Tiznit", [/تزنيت/i, /\btiznit\b/i]],
+  ["Guelmim", [/كلميم/i, /\bguelmim\b/i]],
+  ["Laayoune", [/العيون/i, /\blaa?youne\b/i]],
+  ["Dakhla", [/الداخله/i, /\bdakhla\b/i]],
+  ["Sidi Kacem", [/سيدي\s+قاسم/i, /\bsidi\s+kacem\b/i]],
+  ["Sidi Slimane", [/سيدي\s+سليمان/i, /\bsidi\s+slimane\b/i]],
+  ["Ouezzane", [/وزان/i, /\bouezzane\b/i]],
+  ["Chefchaouen", [/شفشاون/i, /\bchefchaouen\b/i]],
+  ["Al Hoceima", [/الحسيمه/i, /\bal\s+hoceima\b/i]],
+  ["Benguerir", [/بنجرير/i, /\bbenguerir\b/i]],
+  ["Youssoufia", [/اليوسفيه/i, /\byoussoufia\b/i]],
 ]);
 
 const MONTH_NUMBERS = new Map([
@@ -146,7 +177,23 @@ export function textContentToText(content) {
 }
 
 export function inferIssueNumber(filename) {
-  return filename.match(/BOAL[_-](\d+(?:-bis)?)/i)?.[1] ?? null;
+  return String(filename ?? "").match(/BOAL[_-](\d+(?:-bis)?)/i)?.[1] ?? null;
+}
+
+export function pdfDateToIso(value) {
+  const match = String(value ?? "").match(/(?:D:)?(\d{4})(\d{2})(\d{2})/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== Number(year) ||
+    date.getUTCMonth() + 1 !== Number(month) ||
+    date.getUTCDate() !== Number(day)
+  ) {
+    return null;
+  }
+  return `${year}-${month}-${day}`;
 }
 
 export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
@@ -157,9 +204,27 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
     useSystemFonts: true,
   });
   const document = await loadingTask.promise;
-  const issueNumber = options.issueNumber || inferIssueNumber(file.name);
+  const issueNumber =
+    options.issueNumber ||
+    inferIssueNumber(file.name) ||
+    inferIssueNumber(options.sourceUrl);
+  let publicationDate = options.publicationDate || null;
+  if (!publicationDate) {
+    try {
+      const metadata = await document.getMetadata();
+      publicationDate = pdfDateToIso(
+        metadata?.info?.CreationDate ||
+        metadata?.info?.ModDate ||
+        metadata?.metadata?.get?.("dc:date"),
+      );
+    } catch {
+      publicationDate = null;
+    }
+  }
+  if (!publicationDate) {
+    publicationDate = options.fallbackPublicationDate || null;
+  }
   const records = [];
-  let parsedRecordCount = 0;
   let segmentCount = 0;
   let pendingLines = [];
   let pendingPages = [];
@@ -177,17 +242,12 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
       }, {
         filename: file.name,
         issueNumber,
-        publicationDate: options.publicationDate || null,
+        publicationDate,
         sourceUrl: options.sourceUrl || null,
         includeRawText: options.includeRawText !== false,
       });
       if (record) {
-        parsedRecordCount += 1;
-        const requestedCity = options.city?.trim();
-        const matchesCity = !requestedCity || record.company.cities_mentioned.some(
-          (city) => city.toLowerCase() === requestedCity.toLowerCase(),
-        );
-        if (!options.onlyCity || matchesCity) records.push(record);
+        records.push(record);
       }
     }
     pendingLines = [];
@@ -235,11 +295,12 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
     schema_version: SCHEMA_VERSION,
     summary: {
       records: records.length,
-      records_all_cities: parsedRecordCount,
+      records_all_cities: records.length,
       segments_examined: segmentCount,
       document_pages: document.numPages,
       records_needing_review: records.filter((record) => record.needs_review).length,
-      city_filter: options.onlyCity ? options.city || null : null,
+      city_filter: null,
+      publication_date: publicationDate,
       filename: file.name,
     },
     records,

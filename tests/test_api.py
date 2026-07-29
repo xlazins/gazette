@@ -30,6 +30,18 @@ class CompaniesApiTest(unittest.TestCase):
         self.assertEqual(total, 1)
         self.assertEqual(records[0]["company"]["commercial_register_number"], "8523")
 
+    def test_filters_city_after_loading_all_records(self) -> None:
+        records, total, _ = filter_records(
+            self.records,
+            {"city": ["Settat"]},
+        )
+
+        self.assertGreaterEqual(total, 19)
+        self.assertTrue(
+            all("Settat" in row["company"]["cities_mentioned"] for row in records)
+        )
+        self.assertGreater(len(self.records), total)
+
     def test_rejects_invalid_confidence(self) -> None:
         with self.assertRaises(ValueError):
             filter_records(self.records, {"min_confidence": ["2"]})

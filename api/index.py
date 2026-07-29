@@ -15,7 +15,7 @@ SERVICE_INFO = {
     "endpoints": {
         "companies": "/api/companies",
         "companies_query": (
-            "/api/companies?event=DISSOLUTION&company=SAFRES&"
+            "/api/companies?city=Settat&event=DISSOLUTION&company=SAFRES&"
             "min_confidence=0.8&limit=100&offset=0"
         ),
     },

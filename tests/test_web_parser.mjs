@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 
-import { parseNotice } from "../parser.mjs";
+import {
+  extractGazetteFile,
+  parseNotice,
+  pdfDateToIso,
+} from "../parser.mjs";
+import { httpDateToIso, officialPdfSource } from "../source-url.mjs";
 
 const kleat = parseNotice({
   text: `
@@ -65,5 +70,71 @@ SIGIT MAROC TFZ
 assert.ok(continuation);
 assert.ok(continuation.event.types.includes("CONTINUATION_AFTER_LOSSES"));
 assert.ok(!continuation.event.types.includes("DISSOLUTION"));
+
+assert.equal(pdfDateToIso("D:20260429105130+01'00'"), "2026-04-29");
+assert.equal(pdfDateToIso("D:20261340"), null);
+assert.equal(
+  httpDateToIso("Wed, 29 Apr 2026 10:51:30 GMT"),
+  "2026-04-29",
+);
+
+const officialSource = officialPdfSource(
+  "https://www.sgg.gov.ma/BO/AR/3111/2026/BOAL_5922.pdf",
+);
+assert.equal(officialSource.filename, "BOAL_5922.pdf");
+assert.equal(
+  officialSource.fetchUrl,
+  "/sgg-pdf/3111/2026/BOAL_5922.pdf",
+);
+assert.throws(
+  () => officialPdfSource("https://example.com/BOAL_5922.pdf"),
+  /official sgg\.gov\.ma/i,
+);
+
+const fakeItems = [
+  "ALPHA",
+  "شركة ذات مسؤولية محدودة",
+  "تأسيس الشركة",
+  "سطات",
+  "1A",
+  "BETA",
+  "شركة ذات مسؤولية محدودة",
+  "تأسيس الشركة",
+  "الرباط",
+  "2B",
+].map((str) => ({ str, hasEOL: true }));
+const fakeDocument = {
+  numPages: 1,
+  getMetadata: async () => ({
+    info: { CreationDate: "D:20260429105130+01'00'" },
+  }),
+  getPage: async () => ({
+    getTextContent: async () => ({ items: fakeItems }),
+    cleanup() {},
+  }),
+  async destroy() {},
+};
+const allCities = await extractGazetteFile(
+  {
+    name: "BOAL_6000.pdf",
+    arrayBuffer: async () => new ArrayBuffer(0),
+  },
+  {
+    city: "Settat",
+    onlyCity: true,
+    includeRawText: true,
+  },
+  {
+    getDocument: () => ({ promise: Promise.resolve(fakeDocument) }),
+  },
+);
+assert.equal(allCities.records.length, 2);
+assert.equal(allCities.summary.records_all_cities, 2);
+assert.equal(allCities.summary.city_filter, null);
+assert.equal(allCities.summary.publication_date, "2026-04-29");
+assert.deepEqual(
+  allCities.records.map((record) => record.company.cities_mentioned),
+  [["Settat"], ["Rabat"]],
+);
 
 console.log("web parser tests passed");

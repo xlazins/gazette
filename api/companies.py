@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 
-DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "BOAL_5922_settat.json"
+DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "BOAL_5922_all.json"
 MAX_PAGE_SIZE = 500
 
 
@@ -24,6 +24,7 @@ def filter_records(
 ) -> tuple[list[dict[str, Any]], int, int]:
     event = _first(parameters, "event")
     company = _first(parameters, "company")
+    city = _first(parameters, "city")
     query = _first(parameters, "q")
     review = _parse_bool(_first(parameters, "needs_review"))
     min_confidence = _parse_float(_first(parameters, "min_confidence"), default=0.0)
@@ -42,6 +43,10 @@ def filter_records(
         }:
             continue
         if company and company.casefold() not in (record_company["name"] or "").casefold():
+            continue
+        if city and city.casefold() not in {
+            value.casefold() for value in record_company.get("cities_mentioned", [])
+        }:
             continue
         if review is not None and record["needs_review"] is not review:
             continue

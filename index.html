@@ -44,41 +44,35 @@
           </label>
 
           <form class="run-settings" id="extract-form">
-            <div class="field-grid">
-              <label>
-                <span>Issue number</span>
-                <input id="issue-number" name="issueNumber" inputmode="numeric" placeholder="5922">
-              </label>
-              <label>
-                <span>Publication date</span>
-                <input id="publication-date" name="publicationDate" type="date">
-              </label>
-            </div>
             <label>
-              <span>Official source URL <small>optional</small></span>
+              <span>Official BOAL PDF link <small>instead of an upload</small></span>
               <input
                 id="source-url"
                 name="sourceUrl"
                 type="url"
-                placeholder="https://www.sgg.gov.ma/BO/AR/..."
+                placeholder="https://www.sgg.gov.ma/BO/AR/.../BOAL_5922.pdf"
               >
             </label>
-            <div class="field-grid">
-              <label>
-                <span>City mentioned</span>
-                <input id="city" name="city" value="Settat">
-              </label>
-              <div class="checks">
-                <label class="check-row">
-                  <input id="only-city" name="onlyCity" type="checkbox" checked>
-                  <span>Keep only notices mentioning it</span>
+
+            <details class="metadata-fields">
+              <summary>Document metadata <small>optional</small></summary>
+              <div class="field-grid">
+                <label>
+                  <span>Issue number</span>
+                  <input id="issue-number" name="issueNumber" inputmode="numeric" placeholder="Auto-detect">
                 </label>
-                <label class="check-row">
-                  <input id="include-raw" name="includeRaw" type="checkbox" checked>
-                  <span>Keep notice text</span>
+                <label>
+                  <span>Publication date</span>
+                  <input id="publication-date" name="publicationDate" type="date">
                 </label>
               </div>
-            </div>
+            </details>
+
+            <label class="check-row">
+              <input id="include-raw" name="includeRaw" type="checkbox" checked>
+              <span>Include machine text in exports</span>
+            </label>
+
             <button class="primary-button" id="extract-button" type="submit" disabled>
               Extract company notices
             </button>
@@ -143,6 +137,12 @@
             <span class="sr-only">Search records</span>
             <span aria-hidden="true">&#8981;</span>
             <input id="record-search" type="search" placeholder="Search company, RC, address">
+          </label>
+          <label>
+            <span class="sr-only">City</span>
+            <select id="city-filter">
+              <option value="">All cities</option>
+            </select>
           </label>
           <label>
             <span class="sr-only">Event type</span>

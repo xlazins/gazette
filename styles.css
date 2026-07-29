@@ -21,13 +21,15 @@ body {
 
 button,
 input,
-select {
+select,
+summary {
   font: inherit;
 }
 
 button,
 label[for],
-select {
+select,
+summary {
   cursor: pointer;
 }
 
@@ -265,6 +267,38 @@ h2 {
   color: #7c857f;
   font-size: 11px;
   font-weight: 500;
+}
+
+.metadata-fields {
+  border-top: 1px solid #e4e8e4;
+  border-bottom: 1px solid #e4e8e4;
+}
+
+.metadata-fields summary {
+  padding: 11px 0;
+  color: #3e4942;
+  font-size: 12px;
+  font-weight: 650;
+  list-style-position: inside;
+}
+
+.metadata-fields[open] summary {
+  margin-bottom: 2px;
+}
+
+.metadata-fields .field-grid {
+  padding: 4px 0 15px;
+}
+
+.metadata-fields label {
+  display: grid;
+  gap: 7px;
+}
+
+.metadata-fields label > span {
+  color: #3e4942;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .field-grid {
@@ -622,7 +656,7 @@ th:nth-child(7) { width: 12%; }
 }
 
 dialog {
-  width: min(760px, calc(100% - 32px));
+  width: min(940px, calc(100% - 32px));
   max-height: calc(100vh - 48px);
   padding: 0;
   overflow: hidden;
@@ -673,6 +707,82 @@ dialog::backdrop {
   font-size: 13px;
 }
 
+.source-page-header,
+.page-controls {
+  display: flex;
+  align-items: center;
+}
+
+.source-page-header {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.source-page-header h3 {
+  margin: 0;
+}
+
+.page-controls {
+  gap: 5px;
+}
+
+.page-tool {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #cfd6d1;
+  border-radius: 4px;
+  background: #fff;
+  color: #263129;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.page-tool:hover:not(:disabled) {
+  background: #f2f5f2;
+}
+
+.page-tool:disabled {
+  cursor: not-allowed;
+  color: #a6aea8;
+}
+
+.page-label {
+  min-width: 58px;
+  color: #657069;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.source-page-viewport {
+  display: grid;
+  min-height: 240px;
+  max-height: 66vh;
+  overflow: auto;
+  border: 1px solid #dfe4df;
+  background: #e9ece9;
+  place-items: start center;
+}
+
+.source-page-viewport canvas {
+  display: block;
+  max-width: none;
+  background: #fff;
+  box-shadow: 0 1px 7px rgb(25 39 29 / 14%);
+}
+
+.source-page-status {
+  align-self: center;
+  justify-self: center;
+  padding: 40px 16px;
+  color: #657069;
+  font-size: 12px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -720,6 +830,21 @@ dialog::backdrop {
   font-size: 12px;
   line-height: 1.7;
   white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+
+.raw-text[dir="rtl"] {
+  text-align: right;
+}
+
+.machine-text-section summary {
+  color: #253028;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.machine-text-section[open] summary {
+  margin-bottom: 13px;
 }
 
 .sr-only {

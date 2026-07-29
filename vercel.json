@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/sgg-pdf/:collection/:year/:filename",
+      "destination": "https://www.sgg.gov.ma/BO/AR/:collection/:year/:filename"
+    }
+  ]
 }

@@ -4,6 +4,7 @@ import {
   extractGazetteFile,
   inferIssueNumber,
 } from "./parser.mjs";
+import { httpDateToIso, officialPdfSource } from "./source-url.mjs";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "./vendor/pdf.worker.min.mjs",
@@ -19,8 +20,6 @@ const elements = {
   issueNumber: document.querySelector("#issue-number"),
   publicationDate: document.querySelector("#publication-date"),
   sourceUrl: document.querySelector("#source-url"),
-  city: document.querySelector("#city"),
-  onlyCity: document.querySelector("#only-city"),
   includeRaw: document.querySelector("#include-raw"),
   extractButton: document.querySelector("#extract-button"),
   runStatus: document.querySelector("#run-status"),
@@ -37,6 +36,7 @@ const elements = {
   statSegments: document.querySelector("#stat-segments"),
   statPages: document.querySelector("#stat-pages"),
   search: document.querySelector("#record-search"),
+  cityFilter: document.querySelector("#city-filter"),
   eventFilter: document.querySelector("#event-filter"),
   reviewFilter: document.querySelector("#review-filter"),
   visibleCount: document.querySelector("#visible-count"),
@@ -56,6 +56,12 @@ const state = {
   payload: null,
   cancelled: false,
   running: false,
+  activeFile: null,
+  viewerDocumentPromise: null,
+  pageRenderTask: null,
+  dialogRecord: null,
+  dialogPageIndex: 0,
+  dialogZoom: 1,
 };
 
 const EVENT_LABELS = {
@@ -99,7 +105,12 @@ elements.dropZone.addEventListener("drop", (event) => {
 
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!state.file || state.running) return;
+  if (
+    state.running ||
+    (!state.file && !elements.sourceUrl.value.trim())
+  ) {
+    return;
+  }
   await runExtraction();
 });
 
@@ -110,9 +121,32 @@ elements.cancelButton.addEventListener("click", () => {
   elements.cancelButton.disabled = true;
 });
 
-for (const control of [elements.search, elements.eventFilter, elements.reviewFilter]) {
+for (const control of [
+  elements.search,
+  elements.cityFilter,
+  elements.eventFilter,
+  elements.reviewFilter,
+]) {
   control.addEventListener("input", renderRecords);
 }
+
+elements.sourceUrl.addEventListener("input", () => {
+  hideError();
+  if (elements.sourceUrl.value.trim() && state.file) {
+    state.file = null;
+    elements.fileInput.value = "";
+    elements.dropZone.classList.remove("has-file");
+    elements.dropTitle.textContent = "Choose a PDF or drop it here";
+    elements.dropDetail.textContent = "Official SGG BOAL issues are supported";
+  }
+  state.activeFile = null;
+  resetViewerDocument();
+  const inferredIssue = inferIssueNumber(elements.sourceUrl.value);
+  if (!elements.issueNumber.value && inferredIssue) {
+    elements.issueNumber.value = inferredIssue;
+  }
+  updateExtractButton();
+});
 
 elements.exportJson.addEventListener("click", exportJson);
 elements.exportCsv.addEventListener("click", exportCsv);
@@ -120,29 +154,82 @@ elements.closeDialog.addEventListener("click", () => elements.dialog.close());
 elements.dialog.addEventListener("click", (event) => {
   if (event.target === elements.dialog) elements.dialog.close();
 });
+elements.dialog.addEventListener("close", () => {
+  state.dialogRecord = null;
+  state.pageRenderTask?.cancel?.();
+  state.pageRenderTask = null;
+});
 
 function selectFile(file) {
   hideError();
+  resetViewerDocument();
+  state.activeFile = null;
   if (!file) {
     state.file = null;
-    elements.extractButton.disabled = true;
     elements.dropZone.classList.remove("has-file");
     elements.dropTitle.textContent = "Choose a PDF or drop it here";
     elements.dropDetail.textContent = "Official SGG BOAL issues are supported";
+    updateExtractButton();
     return;
   }
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    state.file = null;
     showError("Select a PDF document.");
+    updateExtractButton();
     return;
   }
   state.file = file;
-  elements.extractButton.disabled = false;
+  elements.sourceUrl.value = "";
   elements.dropZone.classList.add("has-file");
   elements.dropTitle.textContent = file.name;
   elements.dropDetail.textContent = `${formatBytes(file.size)} - ready to extract`;
   if (!elements.issueNumber.value) {
     elements.issueNumber.value = inferIssueNumber(file.name) ?? "";
   }
+  updateExtractButton();
+}
+
+function updateExtractButton() {
+  elements.extractButton.disabled =
+    state.running ||
+    (!state.file && !elements.sourceUrl.value.trim());
+}
+
+async function downloadOfficialPdf(value) {
+  const source = officialPdfSource(value);
+  elements.statusTitle.textContent = "Downloading official issue";
+  elements.statusDetail.textContent = source.filename;
+
+  const response = await fetch(source.fetchUrl);
+  if (!response.ok) {
+    throw new Error(`The official PDF returned ${response.status}.`);
+  }
+
+  const blob = await response.blob();
+  if (
+    blob.type &&
+    !blob.type.toLowerCase().includes("application/pdf")
+  ) {
+    throw new Error("The official link did not return a PDF document.");
+  }
+
+  return {
+    file: new File([blob], source.filename, {
+      type: "application/pdf",
+    }),
+    originalUrl: source.originalUrl,
+    fallbackPublicationDate: httpDateToIso(response.headers.get("last-modified")),
+  };
+}
+
+function resetViewerDocument() {
+  state.pageRenderTask?.cancel?.();
+  state.pageRenderTask = null;
+  const existingDocument = state.viewerDocumentPromise;
+  state.viewerDocumentPromise = null;
+  existingDocument
+    ?.then((document) => document.destroy())
+    .catch(() => {});
 }
 
 async function runExtraction() {
@@ -156,6 +243,7 @@ async function runExtraction() {
   elements.cancelButton.disabled = false;
   elements.extractButton.disabled = true;
   elements.fileInput.disabled = true;
+  elements.sourceUrl.disabled = true;
   elements.statusTitle.textContent = "Reading document";
   elements.statusDetail.textContent = "Loading the PDF text layer";
   elements.progressBar.value = 0;
@@ -163,14 +251,26 @@ async function runExtraction() {
   elements.recordProgress.textContent = "0 records";
 
   try {
+    const sourceUrl = elements.sourceUrl.value.trim();
+    const source = state.file
+      ? {
+          file: state.file,
+          originalUrl: sourceUrl || null,
+          fallbackPublicationDate: null,
+        }
+      : await downloadOfficialPdf(sourceUrl);
+    state.activeFile = source.file;
+    resetViewerDocument();
+    if (!elements.issueNumber.value) {
+      elements.issueNumber.value = inferIssueNumber(source.file.name) ?? "";
+    }
     const payload = await extractGazetteFile(
-      state.file,
+      source.file,
       {
         issueNumber: elements.issueNumber.value.trim(),
         publicationDate: elements.publicationDate.value || null,
-        sourceUrl: elements.sourceUrl.value.trim() || null,
-        city: elements.city.value.trim(),
-        onlyCity: elements.onlyCity.checked,
+        fallbackPublicationDate: source.fallbackPublicationDate,
+        sourceUrl: source.originalUrl,
         includeRawText: elements.includeRaw.checked,
       },
       pdfjs,
@@ -186,6 +286,9 @@ async function runExtraction() {
       },
     );
     state.payload = payload;
+    if (!elements.publicationDate.value && payload.summary.publication_date) {
+      elements.publicationDate.value = payload.summary.publication_date;
+    }
     elements.statusTitle.textContent = "Extraction complete";
     elements.statusDetail.textContent = `${payload.summary.records.toLocaleString()} records retained from ${payload.summary.segments_examined.toLocaleString()} notice segments`;
     elements.progressBar.value = 100;
@@ -206,8 +309,9 @@ async function runExtraction() {
     }
   } finally {
     state.running = false;
-    elements.extractButton.disabled = !state.file;
     elements.fileInput.disabled = false;
+    elements.sourceUrl.disabled = false;
+    updateExtractButton();
   }
 }
 
@@ -219,6 +323,16 @@ function renderResults() {
   elements.statPages.textContent = summary.document_pages.toLocaleString();
   elements.search.value = "";
   elements.reviewFilter.value = "";
+  elements.cityFilter.replaceChildren(new Option("All cities", ""));
+  const cities = [...new Set(
+    records.flatMap((record) => record.company.cities_mentioned),
+  )].sort((a, b) => a.localeCompare(b));
+  for (const city of cities) {
+    elements.cityFilter.add(new Option(city, city));
+  }
+  if (records.some((record) => !record.company.cities_mentioned.length)) {
+    elements.cityFilter.add(new Option("City not detected", "__unknown__"));
+  }
   elements.eventFilter.replaceChildren(new Option("All events", ""));
   const events = [...new Set(records.map((record) => record.event.primary_type))].sort();
   for (const event of events) {
@@ -232,9 +346,23 @@ function renderResults() {
 function renderRecords() {
   const records = state.payload?.records ?? [];
   const query = elements.search.value.trim().toLowerCase();
+  const city = elements.cityFilter.value;
   const event = elements.eventFilter.value;
   const review = elements.reviewFilter.value;
   const filtered = records.filter((record) => {
+    if (
+      city === "__unknown__" &&
+      record.company.cities_mentioned.length
+    ) {
+      return false;
+    }
+    if (
+      city &&
+      city !== "__unknown__" &&
+      !record.company.cities_mentioned.includes(city)
+    ) {
+      return false;
+    }
     if (event && record.event.primary_type !== event) return false;
     if (review === "review" && !record.needs_review) return false;
     if (review === "ready" && record.needs_review) return false;
@@ -315,13 +443,19 @@ function confidenceCell(record) {
 }
 
 function openRecord(record) {
+  state.dialogRecord = record;
+  state.dialogPageIndex = 0;
+  state.dialogZoom = 1;
   elements.dialogReference.textContent = [
     record.source.notice_reference ? `Notice ${record.source.notice_reference}` : "Notice",
     record.source.pdf_pages.length ? `PDF page ${record.source.pdf_pages.join(", ")}` : null,
   ].filter(Boolean).join(" - ");
   elements.dialogTitle.textContent = record.company.name || "Name not detected";
   elements.dialogTitle.dir = "auto";
+  const sourceSection = createSourcePageSection(record);
   elements.dialogBody.replaceChildren(
+    ...[
+      sourceSection,
     detailSection("Company", [
       ["Legal form", record.company.legal_form],
       ["Commercial register", record.company.commercial_register_number],
@@ -347,6 +481,7 @@ function openRecord(record) {
       ["Confidence", `${Math.round(record.confidence * 100)}%`],
       ["Source URL", record.source.source_url],
     ]),
+    ].filter(Boolean),
   );
 
   if (record.review_reasons.length) {
@@ -366,18 +501,159 @@ function openRecord(record) {
   }
 
   if (record.raw_text) {
-    const section = document.createElement("section");
-    section.className = "detail-section";
-    const heading = document.createElement("h3");
-    heading.textContent = "Extracted notice text";
+    const section = document.createElement("details");
+    section.className = "detail-section machine-text-section";
+    const heading = document.createElement("summary");
+    heading.textContent = "Machine text layer";
     const raw = document.createElement("pre");
     raw.className = "raw-text";
-    raw.dir = "auto";
+    raw.dir = containsArabic(record.raw_text) ? "rtl" : "auto";
+    if (raw.dir === "rtl") raw.lang = "ar";
     raw.textContent = record.raw_text;
     section.append(heading, raw);
     elements.dialogBody.append(section);
   }
   elements.dialog.showModal();
+  if (sourceSection) {
+    requestAnimationFrame(() => renderDialogSourcePage());
+  }
+}
+
+function createSourcePageSection(record) {
+  const pages = record.source.pdf_pages.filter((page) => Number.isInteger(page));
+  if (!state.activeFile || !pages.length) return null;
+
+  const section = document.createElement("section");
+  section.className = "detail-section source-page-section";
+
+  const header = document.createElement("div");
+  header.className = "source-page-header";
+  const heading = document.createElement("h3");
+  heading.textContent = "Original Arabic page";
+  const controls = document.createElement("div");
+  controls.className = "page-controls";
+
+  const previous = pageToolButton("Previous source page", "\u2039", () => {
+    state.dialogPageIndex = Math.max(0, state.dialogPageIndex - 1);
+    renderDialogSourcePage();
+  });
+  previous.dataset.pageAction = "previous";
+  const pageLabel = document.createElement("span");
+  pageLabel.className = "page-label";
+  pageLabel.dataset.pageLabel = "";
+  const next = pageToolButton("Next source page", "\u203a", () => {
+    state.dialogPageIndex = Math.min(
+      pages.length - 1,
+      state.dialogPageIndex + 1,
+    );
+    renderDialogSourcePage();
+  });
+  next.dataset.pageAction = "next";
+  const zoomOut = pageToolButton("Zoom out", "\u2212", () => {
+    state.dialogZoom = Math.max(0.7, state.dialogZoom - 0.15);
+    renderDialogSourcePage();
+  });
+  const zoomIn = pageToolButton("Zoom in", "+", () => {
+    state.dialogZoom = Math.min(2, state.dialogZoom + 0.15);
+    renderDialogSourcePage();
+  });
+  controls.append(previous, pageLabel, next, zoomOut, zoomIn);
+  header.append(heading, controls);
+
+  const viewport = document.createElement("div");
+  viewport.className = "source-page-viewport";
+  const status = document.createElement("span");
+  status.className = "source-page-status";
+  status.dataset.pageStatus = "";
+  status.textContent = "Rendering source page";
+  const canvas = document.createElement("canvas");
+  canvas.dataset.pageCanvas = "";
+  canvas.setAttribute("aria-label", "Original Gazette page");
+  viewport.append(status, canvas);
+  section.append(header, viewport);
+  return section;
+}
+
+function pageToolButton(label, symbol, action) {
+  const button = document.createElement("button");
+  button.className = "page-tool";
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.textContent = symbol;
+  button.addEventListener("click", action);
+  return button;
+}
+
+async function renderDialogSourcePage() {
+  const record = state.dialogRecord;
+  const section = elements.dialogBody.querySelector(".source-page-section");
+  if (!record || !section || !state.activeFile) return;
+
+  const pages = record.source.pdf_pages.filter((page) => Number.isInteger(page));
+  const pageNumber = pages[state.dialogPageIndex];
+  const canvas = section.querySelector("[data-page-canvas]");
+  const status = section.querySelector("[data-page-status]");
+  const label = section.querySelector("[data-page-label]");
+  const previous = section.querySelector('[data-page-action="previous"]');
+  const next = section.querySelector('[data-page-action="next"]');
+  previous.disabled = state.dialogPageIndex === 0;
+  next.disabled = state.dialogPageIndex === pages.length - 1;
+  label.textContent = pages.length > 1
+    ? `${state.dialogPageIndex + 1} / ${pages.length}`
+    : `PDF ${pageNumber}`;
+  status.hidden = false;
+  status.textContent = `Rendering PDF page ${pageNumber}`;
+  canvas.hidden = true;
+
+  let renderTask = null;
+  try {
+    state.pageRenderTask?.cancel?.();
+    if (!state.viewerDocumentPromise) {
+      state.viewerDocumentPromise = state.activeFile.arrayBuffer().then((buffer) => (
+        pdfjs.getDocument({
+          data: new Uint8Array(buffer),
+          stopAtErrors: false,
+          useSystemFonts: true,
+        }).promise
+      ));
+    }
+    const document = await state.viewerDocumentPromise;
+    const page = await document.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const availableWidth = Math.max(320, section.clientWidth - 4);
+    const fitScale = Math.min(1.5, availableWidth / baseViewport.width);
+    const viewport = page.getViewport({
+      scale: fitScale * state.dialogZoom,
+    });
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(viewport.width * pixelRatio);
+    canvas.height = Math.floor(viewport.height * pixelRatio);
+    canvas.style.width = `${Math.floor(viewport.width)}px`;
+    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    const context = canvas.getContext("2d", { alpha: false });
+    const renderViewport = page.getViewport({
+      scale: fitScale * state.dialogZoom * pixelRatio,
+    });
+    renderTask = page.render({
+      canvasContext: context,
+      viewport: renderViewport,
+    });
+    state.pageRenderTask = renderTask;
+    await renderTask.promise;
+    if (record !== state.dialogRecord) return;
+    canvas.hidden = false;
+    status.hidden = true;
+    page.cleanup();
+  } catch (error) {
+    if (error?.name === "RenderingCancelledException") return;
+    console.error(error);
+    status.textContent = "The source page could not be rendered.";
+  } finally {
+    if (state.pageRenderTask === renderTask) {
+      state.pageRenderTask = null;
+    }
+  }
 }
 
 function detailSection(title, pairs) {
@@ -503,6 +779,10 @@ function formatBytes(bytes) {
 
 function formatNumber(value) {
   return typeof value === "number" ? value.toLocaleString() : null;
+}
+
+function containsArabic(value) {
+  return /[\u0600-\u06ff]/u.test(String(value ?? ""));
 }
 
 function titleCase(value) {

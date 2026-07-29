@@ -5,20 +5,23 @@ Standalone, local-first extraction of company legal events from Morocco's
 
 ## Browser Tool
 
-Open the deployed site, select an official BOAL PDF, enter the issue metadata,
-and start extraction. The application:
+Open the deployed site, select an official BOAL PDF or paste its direct SGG
+link, and start extraction. Issue number and publication date are inferred when
+possible and can be overridden under optional metadata. The application:
 
 - reads the PDF text layer locally with Mozilla PDF.js;
 - separates notices using their printed references;
 - classifies company events and extracts evidence fields;
-- can retain only notices that mention Settat or another entered city;
-- provides review flags and the original notice text;
+- retains notices from every detected city, with city filtering after extraction;
+- provides review flags, machine text and an exact rendering of the source page;
 - exports the result as structured JSON or UTF-8 CSV.
 
-The PDF never leaves the browser. This avoids Vercel's request-size limit and
-keeps official source documents private to the person running the extraction.
-The city filter means "mentioned anywhere in the notice"; a match can therefore
-come from a registered office, branch, shareholder or representative address.
+An uploaded PDF never leaves the browser. A pasted official link is downloaded
+through a restricted same-origin Vercel rewrite and processed locally after it
+arrives. SGG's BulletinOfficiel HTML page is only an index; the legal notices
+remain inside the linked PDF. The city filter means "mentioned anywhere in the
+notice"; a match can therefore come from a registered office, branch,
+shareholder or representative address.
 
 ## What It Produces
 
@@ -81,6 +84,7 @@ This repository can be imported directly from GitHub into Vercel. It exposes:
 - `GET /` - the PDF upload and extraction tool;
 - `GET /api` - service status and endpoint discovery;
 - `GET /api/companies` - all checked records;
+- `GET /api/companies?city=Settat`;
 - `GET /api/companies?event=DISSOLUTION`;
 - `GET /api/companies?company=KLEAT`;
 - `GET /api/companies?q=8523&min_confidence=0.8`;
@@ -94,7 +98,9 @@ serves preprocessed data; interactive PDF extraction runs in the browser.
 BOAL PDFs have four-column pages and notice-ending references such as `677I`.
 The parser uses those references to preserve notices that cross columns or
 pages. Some SGG issues contain damaged Arabic Unicode mappings even though the
-PDF looks correct. Those records are emitted with review flags and source text.
+PDF looks correct. Those records are emitted with review flags. The browser
+renders the original PDF page in each record dialog so the authoritative Arabic
+remains readable even when the hidden machine text is malformed.
 
 The next reliability layer is optional local Arabic OCR using Tesseract. It
 should be invoked only for pages whose embedded text fails quality checks,
@@ -104,18 +110,18 @@ PDF.js is vendored under the Apache-2.0 license in `vendor/`.
 
 ## Real-Issue Validation
 
-The extractor was run across every page of official issue 5922:
+The browser extractor was run across every page of official issue 5922:
 
 - 709 PDF pages;
 - 1,941 completed notice segments;
+- 1,421 company records retained across all cities;
 - 19 records mentioning Settat in the browser parser;
 - KLEAT identified as a branch opening, RC `8523`, dated `2026-02-26`;
 - SAFRES identified as a dissolution, RC `5059`, dated `2026-03-27`;
 - the legal advertiser `FORMAFID CONSEIL` is not mistaken for SAFRES;
 - Settat postal code `26000` is not accepted as a commercial-register number.
 
-All 19 browser-extracted records remain reviewable because this issue's Arabic
-text layer uses a damaged font mapping. Names, dates and register numbers can
-still be high-confidence, while affected addresses and personal names remain
-flagged or `null`. The earlier checked API dataset with 17 records remains in
-`data/BOAL_5922_settat.json`.
+Records affected by this issue's damaged Arabic text layer remain reviewable.
+Names, dates and register numbers can still be high-confidence, while affected
+addresses and personal names remain flagged or `null`. The API dataset contains
+the same all-city extraction and accepts `city` as a query filter.
