@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+      name="description"
+      content="Extract structured Moroccan company events from official BOAL Gazette PDFs."
+    >
+    <title>BOAL Extractor</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">BO</span>
+        <div>
+          <strong>BOAL Extractor</strong>
+          <span>Moroccan company notices</span>
+        </div>
+      </div>
+      <div class="header-meta">
+        <span class="local-status"><span aria-hidden="true"></span>Local processing</span>
+        <a href="/api" target="_blank" rel="noreferrer">API</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="workspace" aria-labelledby="extract-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">New extraction</p>
+            <h1 id="extract-heading">Upload an official BOAL issue</h1>
+          </div>
+          <p class="privacy-note">The PDF stays in this browser.</p>
+        </div>
+
+        <div class="upload-layout">
+          <label class="drop-zone" id="drop-zone" for="pdf-input">
+            <input id="pdf-input" type="file" accept="application/pdf,.pdf">
+            <span class="upload-symbol" aria-hidden="true">&#8593;</span>
+            <span class="drop-title" id="drop-title">Choose a PDF or drop it here</span>
+            <span class="drop-detail" id="drop-detail">Official SGG BOAL issues are supported</span>
+          </label>
+
+          <form class="run-settings" id="extract-form">
+            <div class="field-grid">
+              <label>
+                <span>Issue number</span>
+                <input id="issue-number" name="issueNumber" inputmode="numeric" placeholder="5922">
+              </label>
+              <label>
+                <span>Publication date</span>
+                <input id="publication-date" name="publicationDate" type="date">
+              </label>
+            </div>
+            <label>
+              <span>Official source URL <small>optional</small></span>
+              <input
+                id="source-url"
+                name="sourceUrl"
+                type="url"
+                placeholder="https://www.sgg.gov.ma/BO/AR/..."
+              >
+            </label>
+            <div class="field-grid">
+              <label>
+                <span>City mentioned</span>
+                <input id="city" name="city" value="Settat">
+              </label>
+              <div class="checks">
+                <label class="check-row">
+                  <input id="only-city" name="onlyCity" type="checkbox" checked>
+                  <span>Keep only notices mentioning it</span>
+                </label>
+                <label class="check-row">
+                  <input id="include-raw" name="includeRaw" type="checkbox" checked>
+                  <span>Keep notice text</span>
+                </label>
+              </div>
+            </div>
+            <button class="primary-button" id="extract-button" type="submit" disabled>
+              Extract company notices
+            </button>
+          </form>
+        </div>
+
+        <div class="run-status" id="run-status" hidden aria-live="polite">
+          <div class="status-line">
+            <div>
+              <strong id="status-title">Reading document</strong>
+              <span id="status-detail">Preparing the PDF</span>
+            </div>
+            <button class="text-button danger" id="cancel-button" type="button">Cancel</button>
+          </div>
+          <progress id="progress-bar" max="100" value="0"></progress>
+          <div class="progress-meta">
+            <span id="page-progress">Page 0 of 0</span>
+            <span id="record-progress">0 records</span>
+          </div>
+        </div>
+
+        <p class="form-error" id="form-error" hidden role="alert"></p>
+      </section>
+
+      <section class="results" id="results-section" hidden aria-labelledby="results-heading">
+        <div class="section-heading result-heading">
+          <div>
+            <p class="eyebrow">Extraction result</p>
+            <h2 id="results-heading">Company events</h2>
+          </div>
+          <div class="export-actions">
+            <button class="secondary-button" id="export-json" type="button">
+              <span aria-hidden="true">&#8595;</span> JSON
+            </button>
+            <button class="secondary-button" id="export-csv" type="button">
+              <span aria-hidden="true">&#8595;</span> CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="stats-strip">
+          <div>
+            <span>Records</span>
+            <strong id="stat-records">0</strong>
+          </div>
+          <div>
+            <span>Needs review</span>
+            <strong id="stat-review">0</strong>
+          </div>
+          <div>
+            <span>Notice segments</span>
+            <strong id="stat-segments">0</strong>
+          </div>
+          <div>
+            <span>PDF pages</span>
+            <strong id="stat-pages">0</strong>
+          </div>
+        </div>
+
+        <div class="result-toolbar">
+          <label class="search-field">
+            <span class="sr-only">Search records</span>
+            <span aria-hidden="true">&#8981;</span>
+            <input id="record-search" type="search" placeholder="Search company, RC, address">
+          </label>
+          <label>
+            <span class="sr-only">Event type</span>
+            <select id="event-filter">
+              <option value="">All events</option>
+            </select>
+          </label>
+          <label>
+            <span class="sr-only">Review status</span>
+            <select id="review-filter">
+              <option value="">All records</option>
+              <option value="review">Needs review</option>
+              <option value="ready">Ready</option>
+            </select>
+          </label>
+          <span class="visible-count" id="visible-count">0 shown</span>
+        </div>
+
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Event</th>
+                <th>RC</th>
+                <th>Date</th>
+                <th>City</th>
+                <th>Confidence</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="record-body"></tbody>
+          </table>
+          <div class="empty-state" id="empty-state" hidden>
+            No records match the current filters.
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="record-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow" id="dialog-reference">Notice</p>
+          <h2 id="dialog-title">Company record</h2>
+        </div>
+        <button class="icon-button" id="close-dialog" type="button" aria-label="Close">
+          &#10005;
+        </button>
+      </div>
+      <div class="dialog-body" id="dialog-body"></div>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -3,6 +3,23 @@
 Standalone, local-first extraction of company legal events from Morocco's
 `BOAL` Gazette PDFs. It does not call an AI API or a paid data provider.
 
+## Browser Tool
+
+Open the deployed site, select an official BOAL PDF, enter the issue metadata,
+and start extraction. The application:
+
+- reads the PDF text layer locally with Mozilla PDF.js;
+- separates notices using their printed references;
+- classifies company events and extracts evidence fields;
+- can retain only notices that mention Settat or another entered city;
+- provides review flags and the original notice text;
+- exports the result as structured JSON or UTF-8 CSV.
+
+The PDF never leaves the browser. This avoids Vercel's request-size limit and
+keeps official source documents private to the person running the extraction.
+The city filter means "mentioned anywhere in the notice"; a match can therefore
+come from a registered office, branch, shareholder or representative address.
+
 ## What It Produces
 
 Each notice becomes an event record with:
@@ -57,19 +74,20 @@ python -m gazette_extractor `
 - `jsonl`: one complete event record per line for database ingestion.
 - `csv`: flattened UTF-8 spreadsheet export.
 
-## Vercel API
+## Vercel Deployment And API
 
 This repository can be imported directly from GitHub into Vercel. It exposes:
 
-- `GET /` - service status and endpoint discovery;
+- `GET /` - the PDF upload and extraction tool;
+- `GET /api` - service status and endpoint discovery;
 - `GET /api/companies` - all checked records;
 - `GET /api/companies?event=DISSOLUTION`;
 - `GET /api/companies?company=KLEAT`;
 - `GET /api/companies?q=8523&min_confidence=0.8`;
 - `GET /api/companies?needs_review=true&limit=100&offset=0`.
 
-Responses are UTF-8 JSON with permissive read-only CORS headers. The API serves
-preprocessed data; it does not run the 709-page PDF extractor during a request.
+API responses are UTF-8 JSON with permissive read-only CORS headers. The API
+serves preprocessed data; interactive PDF extraction runs in the browser.
 
 ## Current Boundary
 
@@ -82,19 +100,22 @@ The next reliability layer is optional local Arabic OCR using Tesseract. It
 should be invoked only for pages whose embedded text fails quality checks,
 keeping normal extraction fast and fully free.
 
+PDF.js is vendored under the Apache-2.0 license in `vendor/`.
+
 ## Real-Issue Validation
 
 The extractor was run across every page of official issue 5922:
 
 - 709 PDF pages;
 - 1,941 completed notice segments;
-- 17 records mentioning Settat;
+- 19 records mentioning Settat in the browser parser;
 - KLEAT identified as a branch opening, RC `8523`, dated `2026-02-26`;
 - SAFRES identified as a dissolution, RC `5059`, dated `2026-03-27`;
 - the legal advertiser `FORMAFID CONSEIL` is not mistaken for SAFRES;
 - Settat postal code `26000` is not accepted as a commercial-register number.
 
-All 17 Settat records remain reviewable because this issue's Arabic text layer
-uses a damaged font mapping. Names, dates and register numbers can still be
-high-confidence, while affected addresses and personal names remain flagged or
-`null`. The checked output is in `data/BOAL_5922_settat.json`.
+All 19 browser-extracted records remain reviewable because this issue's Arabic
+text layer uses a damaged font mapping. Names, dates and register numbers can
+still be high-confidence, while affected addresses and personal names remain
+flagged or `null`. The earlier checked API dataset with 17 records remains in
+`data/BOAL_5922_settat.json`.
