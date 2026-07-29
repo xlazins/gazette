@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morocco-gazette-extractor"
+version = "0.1.0"
+description = "Local extractor for Moroccan BOAL company notices"
+requires-python = ">=3.11"
+dependencies = ["pypdf>=6.0"]
+
+[project.scripts]
+boal-extract = "gazette_extractor.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gazette_extractor*"]

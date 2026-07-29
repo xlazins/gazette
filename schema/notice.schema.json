@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settatscope.local/schemas/boal-notice-1.0.0.json",
+  "title": "Moroccan BOAL company event",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source",
+    "company",
+    "event",
+    "confidence",
+    "needs_review",
+    "review_reasons",
+    "raw_text"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "series",
+        "issue_number",
+        "publication_date",
+        "pdf_path",
+        "source_url",
+        "pdf_pages",
+        "printed_pages",
+        "notice_reference"
+      ],
+      "properties": {
+        "series": {
+          "const": "BOAL"
+        },
+        "issue_number": {
+          "type": ["string", "null"]
+        },
+        "publication_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "pdf_path": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": ["string", "null"],
+          "format": "uri"
+        },
+        "pdf_pages": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "printed_pages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notice_reference": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "company": {
+      "type": "object",
+      "required": [
+        "name",
+        "legal_form",
+        "commercial_register_number",
+        "registered_address",
+        "cities_mentioned"
+      ],
+      "properties": {
+        "name": {
+          "type": ["string", "null"]
+        },
+        "legal_form": {
+          "type": ["string", "null"]
+        },
+        "commercial_register_number": {
+          "type": ["string", "null"]
+        },
+        "registered_address": {
+          "type": ["string", "null"]
+        },
+        "cities_mentioned": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "primary_type",
+        "types",
+        "decision_date",
+        "effective_date",
+        "business_purpose",
+        "capital_mad",
+        "branch_address",
+        "manager_or_liquidator",
+        "filing"
+      ],
+      "properties": {
+        "primary_type": {
+          "type": "string"
+        },
+        "types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "decision_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "effective_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "business_purpose": {
+          "type": ["string", "null"]
+        },
+        "capital_mad": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "branch_address": {
+          "type": ["string", "null"]
+        },
+        "manager_or_liquidator": {
+          "type": ["string", "null"]
+        },
+        "filing": {
+          "type": "object",
+          "required": ["court", "date", "number"],
+          "properties": {
+            "court": {
+              "type": ["string", "null"]
+            },
+            "date": {
+              "type": ["string", "null"],
+              "format": "date"
+            },
+            "number": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "needs_review": {
+      "type": "boolean"
+    },
+    "review_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "raw_text": {
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": false
+}
