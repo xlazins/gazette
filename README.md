@@ -10,10 +10,12 @@ link, and start extraction. Issue number and publication date are inferred when
 possible and can be overridden under optional metadata. The application:
 
 - reads the PDF text layer locally with Mozilla PDF.js;
-- separates notices using their printed references;
+- reconstructs the four columns in right-to-left reading order;
+- separates notices using the numbered marker at the lower-left of each box;
+- identifies the subject from its bold Latin company-name heading;
 - classifies company events and extracts evidence fields;
 - retains notices from every detected city, with city filtering after extraction;
-- provides review flags, machine text and an exact rendering of the source page;
+- provides review flags, machine text and exact notice-box renderings;
 - exports the result as structured JSON or UTF-8 CSV.
 
 An uploaded PDF never leaves the browser. A pasted official link is downloaded
@@ -96,15 +98,19 @@ serves preprocessed data; interactive PDF extraction runs in the browser.
 ## Current Boundary
 
 BOAL PDFs have four-column pages and notice-ending references such as `677I`.
-The parser uses those references to preserve notices that cross columns or
-pages. Some SGG issues contain damaged Arabic Unicode mappings even though the
-PDF looks correct. Those records are emitted with review flags. The browser
-renders the original PDF page in each record dialog so the authoritative Arabic
-remains readable even when the hidden machine text is malformed.
+The parser orders the columns geometrically, carries an unfinished box into the
+next column or page, and stores every physical fragment in `source.regions`.
+The browser record dialog renders those fragments in order, so a notice split
+at a page boundary remains one reviewable company record.
 
-The next reliability layer is optional local Arabic OCR using Tesseract. It
-should be invoked only for pages whose embedded text fails quality checks,
-keeping normal extraction fast and fully free.
+Some SGG issues contain damaged Arabic Unicode mappings even though the printed
+page is correct. `tools/ocr-notice.mjs` is the focused accuracy utility for
+those records: it locates a notice by reference, renders all of its stored
+regions, runs free local Arabic OCR, and combines the OCR prose with exact
+dates and numbers retained by the embedded PDF text. `ocr-fields.mjs` then
+extracts labeled fields without a generative model. The browser uploader does
+not yet run OCR over an entire issue because doing so synchronously for
+thousands of boxes would be slow; damaged records remain explicitly flagged.
 
 PDF.js is vendored under the Apache-2.0 license in `vendor/`.
 
@@ -114,11 +120,12 @@ The browser extractor was run across every page of official issue 5922:
 
 - 709 PDF pages;
 - 1,941 completed notice segments;
-- 1,421 company records retained across all cities;
-- 19 records mentioning Settat in the browser parser;
+- 1,486 company-event records retained across all cities;
+- 425 retained records span more than one PDF page;
 - KLEAT identified as a branch opening, RC `8523`, dated `2026-02-26`;
 - SAFRES identified as a dissolution, RC `5059`, dated `2026-03-27`;
 - the legal advertiser `FORMAFID CONSEIL` is not mistaken for SAFRES;
+- cross-page notice `42P` retains its complete purpose and filing section;
 - Settat postal code `26000` is not accepted as a commercial-register number.
 
 Records affected by this issue's damaged Arabic text layer remain reviewable.

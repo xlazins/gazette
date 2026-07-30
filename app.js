@@ -588,8 +588,8 @@ function openRecord(record) {
 }
 
 function createSourcePageSection(record) {
-  const pages = record.source.pdf_pages.filter((page) => Number.isInteger(page));
-  if (!state.activeFile || !pages.length) return null;
+  const sources = sourceSlices(record);
+  if (!state.activeFile || !sources.length) return null;
 
   const section = document.createElement("section");
   section.className = "detail-section source-page-section";
@@ -597,11 +597,11 @@ function createSourcePageSection(record) {
   const header = document.createElement("div");
   header.className = "source-page-header";
   const heading = document.createElement("h3");
-  heading.textContent = "Original Arabic page";
+  heading.textContent = "Original notice";
   const controls = document.createElement("div");
   controls.className = "page-controls";
 
-  const previous = pageToolButton("Previous source page", "\u2039", () => {
+  const previous = pageToolButton("Previous notice fragment", "\u2039", () => {
     state.dialogPageIndex = Math.max(0, state.dialogPageIndex - 1);
     renderDialogSourcePage();
   });
@@ -609,9 +609,9 @@ function createSourcePageSection(record) {
   const pageLabel = document.createElement("span");
   pageLabel.className = "page-label";
   pageLabel.dataset.pageLabel = "";
-  const next = pageToolButton("Next source page", "\u203a", () => {
+  const next = pageToolButton("Next notice fragment", "\u203a", () => {
     state.dialogPageIndex = Math.min(
-      pages.length - 1,
+      sources.length - 1,
       state.dialogPageIndex + 1,
     );
     renderDialogSourcePage();
@@ -633,10 +633,10 @@ function createSourcePageSection(record) {
   const status = document.createElement("span");
   status.className = "source-page-status";
   status.dataset.pageStatus = "";
-  status.textContent = "Rendering source page";
+  status.textContent = "Rendering source notice";
   const canvas = document.createElement("canvas");
   canvas.dataset.pageCanvas = "";
-  canvas.setAttribute("aria-label", "Original Gazette page");
+  canvas.setAttribute("aria-label", "Original Gazette notice");
   viewport.append(status, canvas);
   section.append(header, viewport);
   return section;
@@ -658,20 +658,22 @@ async function renderDialogSourcePage() {
   const section = elements.dialogBody.querySelector(".source-page-section");
   if (!record || !section || !state.activeFile) return;
 
-  const pages = record.source.pdf_pages.filter((page) => Number.isInteger(page));
-  const pageNumber = pages[state.dialogPageIndex];
+  const sources = sourceSlices(record);
+  const source = sources[state.dialogPageIndex];
+  const pageNumber = source?.page;
+  if (!source || !pageNumber) return;
   const canvas = section.querySelector("[data-page-canvas]");
   const status = section.querySelector("[data-page-status]");
   const label = section.querySelector("[data-page-label]");
   const previous = section.querySelector('[data-page-action="previous"]');
   const next = section.querySelector('[data-page-action="next"]');
   previous.disabled = state.dialogPageIndex === 0;
-  next.disabled = state.dialogPageIndex === pages.length - 1;
-  label.textContent = pages.length > 1
-    ? `${state.dialogPageIndex + 1} / ${pages.length}`
+  next.disabled = state.dialogPageIndex === sources.length - 1;
+  label.textContent = sources.length > 1
+    ? `${state.dialogPageIndex + 1} / ${sources.length} · PDF ${pageNumber}`
     : `PDF ${pageNumber}`;
   status.hidden = false;
-  status.textContent = `Rendering PDF page ${pageNumber}`;
+  status.textContent = `Rendering notice from PDF page ${pageNumber}`;
   canvas.hidden = true;
 
   let renderTask = null;
@@ -686,27 +688,56 @@ async function renderDialogSourcePage() {
         }).promise
       ));
     }
-    const document = await state.viewerDocumentPromise;
-    const page = await document.getPage(pageNumber);
+    const pdfDocument = await state.viewerDocumentPromise;
+    const page = await pdfDocument.getPage(pageNumber);
     const baseViewport = page.getViewport({ scale: 1 });
     const availableWidth = Math.max(320, section.clientWidth - 4);
-    const fitScale = Math.min(1.5, availableWidth / baseViewport.width);
-    const viewport = page.getViewport({
-      scale: fitScale * state.dialogZoom,
-    });
+    const sourceWidth = source.region
+      ? source.region.right - source.region.left
+      : baseViewport.width;
+    const fitScale = Math.min(
+      source.region ? 3.2 : 1.5,
+      availableWidth / sourceWidth,
+    );
+    const displayScale = fitScale * state.dialogZoom;
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(viewport.width * pixelRatio);
-    canvas.height = Math.floor(viewport.height * pixelRatio);
-    canvas.style.width = `${Math.floor(viewport.width)}px`;
-    canvas.style.height = `${Math.floor(viewport.height)}px`;
-    const context = canvas.getContext("2d", { alpha: false });
     const renderViewport = page.getViewport({
-      scale: fitScale * state.dialogZoom * pixelRatio,
+      scale: displayScale * pixelRatio,
     });
-    renderTask = page.render({
-      canvasContext: context,
-      viewport: renderViewport,
-    });
+    const context = canvas.getContext("2d", { alpha: false });
+    if (source.region) {
+      const renderScale = displayScale * pixelRatio;
+      const cropLeft = Math.floor(source.region.left * renderScale);
+      const cropTop = Math.floor(
+        (page.view[3] - source.region.top) * renderScale,
+      );
+      const cropWidth = Math.ceil(
+        (source.region.right - source.region.left) * renderScale,
+      );
+      const cropHeight = Math.ceil(
+        (source.region.top - source.region.bottom) * renderScale,
+      );
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      canvas.style.width = `${Math.ceil(cropWidth / pixelRatio)}px`;
+      canvas.style.height = `${Math.ceil(cropHeight / pixelRatio)}px`;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, cropWidth, cropHeight);
+      renderTask = page.render({
+        canvasContext: context,
+        viewport: renderViewport,
+        transform: [1, 0, 0, 1, -cropLeft, -cropTop],
+      });
+    } else {
+      canvas.width = Math.ceil(renderViewport.width);
+      canvas.height = Math.ceil(renderViewport.height);
+      canvas.style.width = `${Math.floor(renderViewport.width / pixelRatio)}px`;
+      canvas.style.height = `${Math.floor(renderViewport.height / pixelRatio)}px`;
+      renderTask = page.render({
+        canvasContext: context,
+        viewport: renderViewport,
+      });
+    }
     state.pageRenderTask = renderTask;
     await renderTask.promise;
     if (record !== state.dialogRecord) return;
@@ -722,6 +753,26 @@ async function renderDialogSourcePage() {
       state.pageRenderTask = null;
     }
   }
+}
+
+function sourceSlices(record) {
+  const regions = Array.isArray(record.source.regions)
+    ? record.source.regions.filter(
+        (region) => (
+          Number.isInteger(region.page) &&
+          Number.isFinite(region.left) &&
+          Number.isFinite(region.right) &&
+          Number.isFinite(region.top) &&
+          Number.isFinite(region.bottom)
+        ),
+      )
+    : [];
+  if (regions.length) {
+    return regions.map((region) => ({ page: region.page, region }));
+  }
+  return record.source.pdf_pages
+    .filter((page) => Number.isInteger(page))
+    .map((page) => ({ page, region: null }));
 }
 
 function detailSection(title, pairs) {

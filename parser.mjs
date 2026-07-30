@@ -1,5 +1,11 @@
+import {
+  boldCompanyName,
+  noticeRegions,
+  noticeReference,
+  pageContentToLines,
+} from "./page-layout.mjs";
+
 const SCHEMA_VERSION = "1.0.0";
-const NOTICE_END_RE = /^\s*(\d{1,7})\s*([A-Z])\s*$/;
 const ARABIC_DIACRITICS_RE = /[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]/gu;
 const ARABIC_DIGITS = new Map([
   ["٠", "0"], ["١", "1"], ["٢", "2"], ["٣", "3"], ["٤", "4"],
@@ -22,7 +28,7 @@ const EVENT_RULES = [
     /cloture\s+(?:definitive\s+)?de\s+(?:la\s+)?liquidation/is,
   ]],
   ["DISSOLUTION", [
-    /(?:حل|انحلال)\s+(?:مسبق|مبكر)?\s*(?:لل)?شركه/is,
+    /(?:حل|انحلال)(?:\s+(?:وذ|ذ|ال|لل|مسبق|مبكر)){0,3}\s+شركه/is,
     /حل\s+الشركه\s+قبل\s+الاوان/is,
     /dissolution\s+(?:anticipee\s+)?(?:de\s+la\s+)?societe/is,
   ]],
@@ -227,6 +233,7 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
   const records = [];
   let segmentCount = 0;
   let pendingLines = [];
+  let pendingLayoutLines = [];
   let pendingPages = [];
   let pendingPrintedPages = [];
 
@@ -239,6 +246,8 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
         pdfPages: [...pendingPages],
         printedPages: [...pendingPrintedPages],
         reference,
+        companyNameHint: boldCompanyName(pendingLayoutLines),
+        sourceRegions: noticeRegions(pendingLayoutLines),
       }, {
         filename: file.name,
         issueNumber,
@@ -251,6 +260,7 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
       }
     }
     pendingLines = [];
+    pendingLayoutLines = [];
     pendingPages = [];
     pendingPrintedPages = [];
   };
@@ -259,17 +269,24 @@ export async function extractGazetteFile(file, options, pdfjs, callbacks = {}) {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       if (callbacks.shouldCancel?.()) throw new ExtractionCancelledError();
       const page = await document.getPage(pageNumber);
-      const pageText = textContentToText(await page.getTextContent());
-      const printedPage = detectPrintedPage(pageText, issueNumber);
+      const content = await page.getTextContent();
+      const rawPageText = textContentToText(content);
+      const printedPage = detectPrintedPage(rawPageText, issueNumber);
+      const pageLines = pageContentToLines(content, {
+        pageNumber,
+        pageWidth: page.view?.[2] ?? 595.276,
+        pageHeight: page.view?.[3] ?? 841.89,
+      });
 
-      for (const line of pageText.split("\n")) {
-        const marker = line.match(NOTICE_END_RE);
-        if (marker) {
-          flushSegment(`${marker[1]}${marker[2]}`);
+      for (const line of pageLines) {
+        const reference = noticeReference(line.text);
+        if (reference) {
+          flushSegment(reference);
           continue;
         }
-        if (!line.trim()) continue;
-        pendingLines.push(line);
+        if (!line.text.trim()) continue;
+        pendingLines.push(line.readingText);
+        pendingLayoutLines.push(line);
         if (pendingPages.at(-1) !== pageNumber) pendingPages.push(pageNumber);
         if (printedPage && pendingPrintedPages.at(-1) !== printedPage) {
           pendingPrintedPages.push(printedPage);
@@ -331,7 +348,7 @@ export function parseNotice(segment, metadata = {}) {
   if (!eventTypes.length) return null;
 
   const lines = compactLines(text);
-  const companyName = detectCompanyName(text);
+  const companyName = segment.companyNameHint || detectCompanyName(text);
   const legalForm = detectLegalForm(text);
   const registerNumber = detectRegisterNumber(lines, companyName);
   const dates = detectDates(text);
@@ -394,6 +411,7 @@ export function parseNotice(segment, metadata = {}) {
       pdf_pages: segment.pdfPages ?? [],
       printed_pages: segment.printedPages ?? [],
       notice_reference: segment.reference ?? null,
+      regions: segment.sourceRegions ?? [],
     },
     company: {
       name: companyName,
