@@ -1,31 +1,38 @@
 # Morocco BOAL Gazette Extractor
 
-Standalone, local-first extraction of company legal events from Morocco's
-`BOAL` Gazette PDFs. It does not call an AI API or a paid data provider.
+Standalone, local-first conversion of PaddleOCR-VL results and Moroccan `BOAL`
+Gazette PDFs into structured company legal events. It does not call an AI API
+or a paid data provider.
 
 ## Browser Tool
 
-Open the deployed site, select an official BOAL PDF or paste its direct SGG
-link, and start extraction. Issue number and publication date are inferred when
-possible and can be overridden under optional metadata. The application:
+For the highest-accuracy workflow:
 
-- reads the PDF text layer locally with Mozilla PDF.js;
-- reconstructs the four columns in right-to-left reading order;
-- separates notices using the numbered marker at the lower-left of each box;
-- identifies the subject from its bold Latin company-name heading;
+1. Run the official BOAL PDF through PaddleOCR-VL 1.6 manually.
+2. Download PaddleOCR's complete JSON result.
+3. Upload that JSON to this site.
+4. Review, filter and export the resulting company-event records.
+
+Issue number and publication date are inferred from the JSON filename and page
+headers when possible. The application:
+
+- reads `prunedResult.parsing_res_list`, not Paddle's mixed page-level Markdown;
+- reconstructs four-column pages in right-to-left reading order using block
+  coordinates;
+- transposes Paddle table-layout pages back into column streams and flags
+  affected records for review;
+- separates notices using printed reference markers and bold company headings;
+- records when an `I` suffix was inferred from Paddle's common `...1` reading;
 - classifies company events and extracts evidence fields;
 - retains notices from every detected city, with city filtering after extraction;
-- provides review flags, machine text and exact notice-box renderings;
-- repairs damaged Arabic text with free, local Tesseract OCR per record or as a
-  resumable batch;
+- provides review flags and the exact PaddleOCR notice transcript;
 - exports the result as structured JSON or UTF-8 CSV.
 
-An uploaded PDF never leaves the browser. A pasted official link is downloaded
-through a restricted same-origin Vercel rewrite and processed locally after it
-arrives. SGG's BulletinOfficiel HTML page is only an index; the legal notices
-remain inside the linked PDF. The city filter means "mentioned anywhere in the
-notice"; a match can therefore come from a registered office, branch,
-shareholder or representative address.
+The JSON never leaves the browser. Direct PDF upload and official SGG-link
+processing remain available as a fallback. For PDFs, the existing browser
+pipeline reads the embedded text layer and can selectively run local Tesseract
+OCR. SGG's BulletinOfficiel HTML page is only an index; the legal notices remain
+inside the linked PDF.
 
 ## What It Produces
 
@@ -97,25 +104,24 @@ This repository can be imported directly from GitHub into Vercel. It exposes:
 API responses are UTF-8 JSON with permissive read-only CORS headers. The API
 serves preprocessed data; interactive PDF extraction runs in the browser.
 
-## Current Boundary
+## Import Boundary
 
-BOAL PDFs have four-column pages and notice-ending references such as `677I`.
-The parser orders the columns geometrically, carries an unfinished box into the
-next column or page, and stores every physical fragment in `source.regions`.
-The browser record dialog renders those fragments in order, so a notice split
-at a page boundary remains one reviewable company record.
+The supported Paddle input is the complete JSON array exported by
+PaddleOCR-VL, with one object per PDF page. The importer requires either
+`prunedResult.parsing_res_list` or `markdown.text` page data. Coordinate blocks
+are preferred. Output-image URLs are intentionally ignored because they are
+remote, temporary processing artifacts.
 
-Some SGG issues contain damaged Arabic Unicode mappings even though the printed
-page is correct. The browser renders only a notice's stored regions and runs
-the bundled Arabic and English Tesseract models locally. OCR can be run for one
-record in the source dialog or for all pending records with a stoppable batch.
-Every completed record is saved in IndexedDB and restored when the same PDF is
-extracted again.
+BOAL issues have four-column pages and notice-ending references such as `677I`.
+The importer carries unfinished notices into the next column or page and stores
+their physical fragments in `source.regions`. Paddle sometimes recognizes the
+letter `I` as the digit `1`; those references are normalized and marked with
+`source.notice_reference_inferred: true`.
 
-The hybrid merge keeps embedded company headings, dates and numeric identifiers
-when they already exist, while OCR repairs Arabic prose and fills missing
-fields. Mixed-script artifacts and low-confidence readings remain review flags.
-`tools/ocr-notice.mjs` provides the same focused workflow from the command line.
+Some pages are returned by Paddle as a single HTML table instead of coordinate
+blocks. The importer reconstructs reasonable column streams from table cells
+and adds `paddle_table_layout_reconstructed` to the affected records. Pathological
+table pages are retained as text where possible and explicitly flagged.
 
 PDF.js, Tesseract.js, Tesseract.js Core and the language models are vendored
 under the Apache-2.0 license in `vendor/`; license notices are in
@@ -135,7 +141,11 @@ The browser extractor was run across every page of official issue 5922:
 - cross-page notice `42P` retains its complete purpose and filing section;
 - Settat postal code `26000` is not accepted as a commercial-register number.
 
-Records affected by this issue's damaged Arabic text layer can be repaired in
-the browser and remain reviewable whenever OCR still contains suspicious text.
-The API dataset contains the same all-city extraction and accepts `city` as a
-query filter.
+Using the supplied PaddleOCR-VL 1.6 JSON for issue 5922, the importer validates:
+
+- all 709 page objects and the 2026-04-29 publication date;
+- KLEAT as a branch opening, RC `8523`, dated `2026-02-26`, including its
+  branch address, manager and filing;
+- SAFRES as a dissolution, RC `5059`, including its liquidator and filing;
+- notices that continue across page boundaries;
+- UTF-8 Arabic without depending on the PDF's damaged text encoding.

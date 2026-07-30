@@ -23,6 +23,10 @@ import {
   needsArabicOcr,
   recordCacheKey,
 } from "../browser-ocr.mjs";
+import {
+  extractPaddleVlPages,
+  isPaddleVlPayload,
+} from "../paddle-vl-import.mjs";
 
 const kleat = parseNotice({
   text: `
@@ -387,6 +391,89 @@ assert.ok(
   ),
 );
 
+const paddlePages = [
+  paddlePage([
+    paddleBlock("header", "(2026 أبريل 29) عدد 5922", [48, 110, 384, 136]),
+    paddleBlock("number", "10372", [1092, 114, 1143, 135]),
+    paddleBlock(
+      "text",
+      "شركة ذات مسؤولية محدودة ذات\nالشريك الوحيد\nإنشاء فرع تابع للشركة",
+      [48, 412, 301, 504],
+    ),
+    paddleBlock("paragraph_title", "##### KLEAT", [139, 510, 210, 536]),
+    paddleBlock(
+      "text",
+      [
+        "شركة ذات مسؤولية محدودة ذات الشريك الوحيد",
+        "وعنوان مقرها الاجتماعي : مجمع الخير رقم 226",
+        "رقم التقييد في السجل التجاري",
+        "8523",
+        "بمقتضى عقد مؤرخ بتاريخ 2026/02/26",
+        "تقرر إنشاء فرع تابع للشركة تحت التسمية - والكائن بالعنوان التالي :",
+        "بن قاصم ر1 و ر2 شارع بير انزاران رقم 48",
+        "المسير من طرف السيد(ة) قنوس يونس.",
+        "تم الإيداع القانوني بالمحكمة",
+        "الابتدائية بسطات بتاريخ 2026/04/08 تحت رقم 122",
+        "6771",
+      ].join("\n"),
+      [45, 543, 311, 1143],
+    ),
+  ]),
+  paddlePage([
+    paddleBlock("header", "(2026 أبريل 29) عدد 5922", [48, 110, 384, 136]),
+    paddleBlock("number", "10373", [1092, 114, 1143, 135]),
+    paddleBlock(
+      "paragraph_title",
+      "##### CROSS PAGE SERVICES",
+      [900, 1300, 1135, 1330],
+    ),
+    paddleBlock(
+      "text",
+      "شركة ذات مسؤولية محدودة\nإعلان عن تأسيس شركة",
+      [880, 1340, 1145, 1590],
+    ),
+  ]),
+  paddlePage([
+    paddleBlock("header", "(2026 أبريل 29) عدد 5922", [48, 110, 384, 136]),
+    paddleBlock("number", "10374", [1092, 114, 1143, 135]),
+    paddleBlock(
+      "text",
+      "رقم السجل التجاري 12345\nسطات\n01/04/2026\n42 P",
+      [880, 158, 1145, 400],
+    ),
+  ]),
+];
+assert.equal(isPaddleVlPayload(paddlePages), true);
+const paddlePayload = await extractPaddleVlPages(paddlePages, {
+  inputFilename: "BOAL_5922.pdf_by_PaddleOCR-VL-1.6.json",
+  includeRawText: true,
+});
+assert.equal(paddlePayload.summary.document_pages, 3);
+assert.equal(paddlePayload.summary.publication_date, "2026-04-29");
+assert.equal(paddlePayload.summary.extraction_engine, "paddleocr-vl-1.6");
+assert.equal(paddlePayload.records.length, 2);
+const paddleKleat = paddlePayload.records.find(
+  (record) => record.company.name === "KLEAT",
+);
+assert.ok(paddleKleat);
+assert.equal(paddleKleat.company.commercial_register_number, "8523");
+assert.equal(paddleKleat.event.branch_address.includes("بير انزاران"), true);
+assert.equal(
+  paddleKleat.event.filing.court,
+  "تم الإيداع القانوني بالمحكمة الابتدائية بسطات",
+);
+assert.equal(paddleKleat.event.filing.number, "122");
+assert.equal(paddleKleat.source.notice_reference, "677I");
+assert.equal(paddleKleat.source.notice_reference_inferred, true);
+assert.equal(paddleKleat.source.extraction_engine, "paddleocr-vl-1.6");
+const paddleCrossPage = paddlePayload.records.find(
+  (record) => record.company.name === "CROSS PAGE SERVICES",
+);
+assert.ok(paddleCrossPage);
+assert.deepEqual(paddleCrossPage.source.pdf_pages, [2, 3]);
+assert.equal(paddleCrossPage.source.notice_reference, "42P");
+assert.equal(paddleCrossPage.source.notice_reference_inferred, false);
+
 console.log("web parser tests passed");
 
 function textItem(str, x, y, height, fontName) {
@@ -398,5 +485,24 @@ function textItem(str, x, y, height, fontName) {
     fontName,
     dir: "ltr",
     hasEOL: false,
+  };
+}
+
+function paddlePage(blocks) {
+  return {
+    prunedResult: {
+      parsing_res_list: blocks,
+    },
+    markdown: {
+      text: blocks.map((block) => block.block_content).join("\n"),
+    },
+  };
+}
+
+function paddleBlock(blockLabel, blockContent, blockBbox) {
+  return {
+    block_label: blockLabel,
+    block_content: blockContent,
+    block_bbox: blockBbox,
   };
 }

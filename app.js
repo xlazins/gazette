@@ -3,7 +3,8 @@ import {
   ExtractionCancelledError,
   extractGazetteFile,
   inferIssueNumber,
-} from "./parser.mjs?v=20260730-3";
+} from "./parser.mjs?v=20260731-1";
+import { extractPaddleVlFile } from "./paddle-vl-import.mjs?v=20260731-1";
 import {
   httpDateToIso,
   officialPdfSource,
@@ -26,7 +27,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 const elements = {
   form: document.querySelector("#extract-form"),
-  fileInput: document.querySelector("#pdf-input"),
+  fileInput: document.querySelector("#document-input"),
   dropZone: document.querySelector("#drop-zone"),
   dropTitle: document.querySelector("#drop-title"),
   dropDetail: document.querySelector("#drop-detail"),
@@ -72,6 +73,7 @@ const elements = {
 
 const state = {
   file: null,
+  fileKind: null,
   payload: null,
   cancelled: false,
   running: false,
@@ -160,10 +162,11 @@ elements.sourceUrl.addEventListener("input", () => {
   hideError();
   if (elements.sourceUrl.value.trim() && state.file) {
     state.file = null;
+    state.fileKind = null;
     elements.fileInput.value = "";
     elements.dropZone.classList.remove("has-file");
-    elements.dropTitle.textContent = "Choose a PDF or drop it here";
-    elements.dropDetail.textContent = "Official SGG BOAL issues are supported";
+    elements.dropTitle.textContent = "Choose PaddleOCR JSON or a BOAL PDF";
+    elements.dropDetail.textContent = "PaddleOCR-VL JSON is recommended";
   }
   state.activeFile = null;
   state.ocrDocumentKey = null;
@@ -201,23 +204,37 @@ function selectFile(file) {
   state.ocrDocumentKey = null;
   if (!file) {
     state.file = null;
+    state.fileKind = null;
     elements.dropZone.classList.remove("has-file");
-    elements.dropTitle.textContent = "Choose a PDF or drop it here";
-    elements.dropDetail.textContent = "Official SGG BOAL issues are supported";
+    elements.dropTitle.textContent = "Choose PaddleOCR JSON or a BOAL PDF";
+    elements.dropDetail.textContent = "PaddleOCR-VL JSON is recommended";
     updateExtractButton();
     return;
   }
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+  const lowerName = file.name.toLowerCase();
+  const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+  const isJson = (
+    file.type === "application/json" ||
+    file.type === "text/json" ||
+    lowerName.endsWith(".json")
+  );
+  if (!isPdf && !isJson) {
     state.file = null;
-    showError("Select a PDF document.");
+    state.fileKind = null;
+    showError("Select a PaddleOCR-VL JSON export or a PDF document.");
     updateExtractButton();
     return;
   }
   state.file = file;
+  state.fileKind = isJson ? "paddle-json" : "pdf";
   elements.sourceUrl.value = "";
   elements.dropZone.classList.add("has-file");
   elements.dropTitle.textContent = file.name;
-  elements.dropDetail.textContent = `${formatBytes(file.size)} - ready to extract`;
+  elements.dropDetail.textContent = [
+    formatBytes(file.size),
+    isJson ? "PaddleOCR-VL JSON" : "BOAL PDF",
+    "ready to import",
+  ].join(" - ");
   if (!elements.issueNumber.value) {
     elements.issueNumber.value = inferIssueNumber(file.name) ?? "";
   }
@@ -344,7 +361,9 @@ async function runExtraction() {
   elements.fileInput.disabled = true;
   elements.sourceUrl.disabled = true;
   elements.statusTitle.textContent = "Reading document";
-  elements.statusDetail.textContent = "Loading the PDF text layer";
+  elements.statusDetail.textContent = state.fileKind === "paddle-json"
+    ? "Loading PaddleOCR-VL page data"
+    : "Loading the PDF text layer";
   elements.progressBar.value = 0;
   elements.pageProgress.textContent = "Page 0 of 0";
   elements.recordProgress.textContent = "0 records";
@@ -356,37 +375,44 @@ async function runExtraction() {
           file: state.file,
           originalUrl: sourceUrl || null,
           fallbackPublicationDate: null,
+          kind: state.fileKind,
         }
-      : await downloadOfficialPdf(sourceUrl);
-    state.activeFile = source.file;
+      : {
+          ...await downloadOfficialPdf(sourceUrl),
+          kind: "pdf",
+        };
+    state.activeFile = source.kind === "pdf" ? source.file : null;
     resetViewerDocument();
     if (!elements.issueNumber.value) {
       elements.issueNumber.value = inferIssueNumber(source.file.name) ?? "";
     }
-    const payload = await extractGazetteFile(
-      source.file,
-      {
-        issueNumber: elements.issueNumber.value.trim(),
-        publicationDate: elements.publicationDate.value || null,
-        fallbackPublicationDate: source.fallbackPublicationDate,
-        sourceUrl: source.originalUrl,
-        includeRawText: elements.includeRaw.checked,
+    const options = {
+      issueNumber: elements.issueNumber.value.trim(),
+      publicationDate: elements.publicationDate.value || null,
+      fallbackPublicationDate: source.fallbackPublicationDate,
+      sourceUrl: source.originalUrl,
+      includeRawText: elements.includeRaw.checked,
+    };
+    const callbacks = {
+      shouldCancel: () => state.cancelled,
+      onProgress: ({ page, totalPages, segments, records }) => {
+        elements.statusTitle.textContent = source.kind === "paddle-json"
+          ? "Importing PaddleOCR notices"
+          : "Extracting company notices";
+        elements.statusDetail.textContent = `${segments.toLocaleString()} notice segments examined`;
+        elements.progressBar.value = Math.round((page / totalPages) * 100);
+        elements.pageProgress.textContent = `Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}`;
+        elements.recordProgress.textContent = `${records.toLocaleString()} records`;
       },
-      pdfjs,
-      {
-        shouldCancel: () => state.cancelled,
-        onProgress: ({ page, totalPages, segments, records }) => {
-          elements.statusTitle.textContent = "Extracting company notices";
-          elements.statusDetail.textContent = `${segments.toLocaleString()} notice segments examined`;
-          elements.progressBar.value = Math.round((page / totalPages) * 100);
-          elements.pageProgress.textContent = `Page ${page.toLocaleString()} of ${totalPages.toLocaleString()}`;
-          elements.recordProgress.textContent = `${records.toLocaleString()} records`;
-        },
-      },
-    );
+    };
+    const payload = source.kind === "paddle-json"
+      ? await extractPaddleVlFile(source.file, options, callbacks)
+      : await extractGazetteFile(source.file, options, pdfjs, callbacks);
     state.payload = payload;
-    state.ocrDocumentKey = documentCacheKey(state.activeFile, payload);
-    const restoredOcr = await restoreCachedOcr();
+    state.ocrDocumentKey = state.activeFile
+      ? documentCacheKey(state.activeFile, payload)
+      : null;
+    const restoredOcr = state.activeFile ? await restoreCachedOcr() : 0;
     if (!elements.publicationDate.value && payload.summary.publication_date) {
       elements.publicationDate.value = payload.summary.publication_date;
     }
@@ -399,7 +425,10 @@ async function runExtraction() {
     elements.cancelButton.hidden = true;
     renderResults();
   } catch (error) {
-    if (error instanceof ExtractionCancelledError) {
+    if (
+      error instanceof ExtractionCancelledError ||
+      error?.name === "ExtractionCancelledError"
+    ) {
       elements.runStatus.hidden = true;
       showError("Extraction was cancelled. No partial file was saved.");
     } else {
@@ -408,7 +437,7 @@ async function runExtraction() {
       showError(
         error?.name === "PasswordException"
           ? "This PDF is password protected and cannot be read."
-          : `The PDF could not be extracted: ${error?.message || "unknown error"}`,
+          : `The file could not be imported: ${error?.message || "unknown error"}`,
       );
     }
   } finally {
@@ -585,6 +614,8 @@ function openRecord(record) {
         ? `${Math.round(record.ocr.confidence)}% confidence`
         : null],
       ["Source URL", record.source.source_url],
+      ["Extraction engine", record.source.extraction_engine],
+      ["Reference inferred", record.source.notice_reference_inferred ? "Yes" : null],
     ]),
     ].filter(Boolean),
   );
@@ -609,7 +640,9 @@ function openRecord(record) {
     const section = document.createElement("details");
     section.className = "detail-section machine-text-section";
     const heading = document.createElement("summary");
-    heading.textContent = "Machine text layer";
+    heading.textContent = record.source.extraction_engine === "paddleocr-vl-1.6"
+      ? "PaddleOCR notice text"
+      : "Machine text layer";
     const raw = document.createElement("pre");
     raw.className = "raw-text";
     raw.dir = containsArabic(record.raw_text) ? "rtl" : "auto";
@@ -987,6 +1020,7 @@ function updateOcrButton() {
   const complete = records.filter((record) => record.ocr?.status === "complete").length;
   elements.runOcr.disabled =
     state.ocrRunning || !state.activeFile || pending === 0;
+  elements.runOcr.hidden = !state.activeFile;
   elements.runOcr.textContent = state.ocrRunning
     ? "Arabic OCR running"
     : pending
@@ -1079,7 +1113,8 @@ function exportCsv() {
     "cities_mentioned", "event_type", "event_types", "decision_date", "effective_date",
     "business_purpose", "capital_mad", "branch_address", "manager_or_liquidator",
     "filing_court", "filing_date", "filing_number", "issue_number", "publication_date",
-    "pdf_pages", "printed_pages", "notice_reference", "source_url", "confidence",
+    "pdf_pages", "printed_pages", "notice_reference", "notice_reference_inferred",
+    "source_url", "extraction_engine", "confidence",
     "needs_review", "review_reasons", "ocr_status", "ocr_confidence",
     "ocr_processed_at", "ocr_text", "raw_text",
   ];
@@ -1105,7 +1140,9 @@ function exportCsv() {
     record.source.pdf_pages.join("|"),
     record.source.printed_pages.join("|"),
     record.source.notice_reference,
+    record.source.notice_reference_inferred,
     record.source.source_url,
+    record.source.extraction_engine,
     record.confidence,
     record.needs_review,
     record.review_reasons.join("|"),

@@ -47,6 +47,13 @@
           "type": ["string", "null"],
           "format": "uri"
         },
+        "extraction_engine": {
+          "type": "string",
+          "enum": [
+            "pdf-text-layer",
+            "paddleocr-vl-1.6"
+          ]
+        },
         "pdf_pages": {
           "type": "array",
           "items": {
@@ -62,6 +69,9 @@
         },
         "notice_reference": {
           "type": ["string", "null"]
+        },
+        "notice_reference_inferred": {
+          "type": "boolean"
         },
         "regions": {
           "type": "array",

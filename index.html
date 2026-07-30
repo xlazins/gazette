@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta
       name="description"
-      content="Extract structured Moroccan company events from official BOAL Gazette PDFs."
+      content="Convert PaddleOCR-VL JSON or official BOAL PDFs into structured Moroccan company events."
     >
     <title>BOAL Extractor</title>
     <link rel="stylesheet" href="/styles.css?v=20260730-3">
@@ -32,20 +32,24 @@
             <p class="eyebrow">New extraction</p>
             <h1 id="extract-heading">Upload an official BOAL issue</h1>
           </div>
-          <p class="privacy-note">The PDF stays in this browser.</p>
+          <p class="privacy-note">Your files stay in this browser.</p>
         </div>
 
         <div class="upload-layout">
-          <label class="drop-zone" id="drop-zone" for="pdf-input">
-            <input id="pdf-input" type="file" accept="application/pdf,.pdf">
+          <label class="drop-zone" id="drop-zone" for="document-input">
+            <input
+              id="document-input"
+              type="file"
+              accept="application/json,.json,application/pdf,.pdf"
+            >
             <span class="upload-symbol" aria-hidden="true">&#8593;</span>
-            <span class="drop-title" id="drop-title">Choose a PDF or drop it here</span>
-            <span class="drop-detail" id="drop-detail">Official SGG BOAL issues are supported</span>
+            <span class="drop-title" id="drop-title">Choose PaddleOCR JSON or a BOAL PDF</span>
+            <span class="drop-detail" id="drop-detail">PaddleOCR-VL JSON is recommended</span>
           </label>
 
           <form class="run-settings" id="extract-form">
             <label>
-              <span>Official BOAL PDF link <small>instead of an upload</small></span>
+              <span>Official BOAL PDF link <small>instead of a file</small></span>
               <input
                 id="source-url"
                 name="sourceUrl"
@@ -210,6 +214,6 @@
       <div class="dialog-body" id="dialog-body"></div>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260730-7"></script>
+    <script type="module" src="/app.js?v=20260731-1"></script>
   </body>
 </html>

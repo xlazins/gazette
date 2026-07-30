@@ -136,7 +136,7 @@ function detectRegisterNumber(lines, embeddedText) {
 }
 
 function extractRegisteredAddress(lines) {
-  return extractBlock(lines, {
+  const value = extractBlock(lines, {
     starts: [
       (line) => compact(line).includes("عنوانمقرهاالاجتماعي"),
       (line) => compact(line).startsWith("الموقع"),
@@ -150,10 +150,16 @@ function extractRegisteredAddress(lines) {
       (line) => compact(line).startsWith("راسالمال"),
     ],
   });
+  return cleanValue(
+    value?.replace(
+      /^(?:وعنوان\s+)?مقرها\s+الاجتماعي\s*:?\s*|^عنوان\s+المقر\s+الاجتماعي\s*:?\s*|^الموقع\s*:?\s*|^si[eè]ge\s+social\s*:?\s*/iu,
+      "",
+    ),
+  );
 }
 
 function extractPurpose(lines) {
-  return extractBlock(lines, {
+  const value = extractBlock(lines, {
     starts: [
       (line) => compact(line).startsWith("الهدف"),
       (line) => compact(line).startsWith("اليدف"),
@@ -168,10 +174,16 @@ function extractPurpose(lines) {
       (line) => compact(line).startsWith("تمالايداعالقانوني"),
     ],
   });
+  return cleanValue(
+    value?.replace(
+      /^(?:الهدف|اليدف|غرض\s+الشركة(?:\s+بإيجاز)?|objet\s+social)\s*:?\s*/iu,
+      "",
+    ),
+  );
 }
 
 function extractBranchAddress(lines) {
-  return extractBlock(lines, {
+  const value = extractBlock(lines, {
     starts: [
       (line) => compact(line).includes("الكاينبالعنوانالتالي"),
       (line) => compact(line).includes("عنوانالفرع"),
@@ -182,9 +194,23 @@ function extractBranchAddress(lines) {
       (line) => compact(line).startsWith("تمالايداعالقانوني"),
     ],
   });
+  return cleanValue(
+    value?.replace(
+      /^.*?(?:الكائن|الكاين|الكاثن)\s+بالعنوان\s+التالي\s*:?\s*|^عنوان\s+الفرع\s*:?\s*/iu,
+      "",
+    ),
+  );
 }
 
 function extractManager(lines) {
+  for (const line of lines) {
+    const liquidator = line.match(
+      /السيد(?:ة)?\s*\)?\s*([\p{Script=Arabic} ]{3,80}?)(?=\s+(?:و\s*)?عنوان|\s+بصفته|\s+كمصفي|\s+مصفيا|$)/u,
+    )?.[1];
+    if (liquidator && /مصفي/u.test(line)) {
+      return cleanValue(liquidator);
+    }
+  }
   const start = lines.findIndex((line) => {
     const value = compact(line);
     return (
@@ -226,7 +252,12 @@ function extractFiling(lines) {
   if (start < 0) return { court: null, date: null, number: null };
   const text = lines.slice(start).join(" ");
   const dates = findDates(text);
-  const numberMatch = fold(text).match(/تحت\s*رقم\s*(\d{1,9})/u);
+  const beforeNumber = fold(text).match(
+    /(?<![./\d])(\d{1,9})\s+تحت\s*رقم/u,
+  )?.[1];
+  const afterNumber = fold(text).match(
+    /تحت\s*رقم\s*(\d{1,9}(?:[./-]\d{1,9})*)/u,
+  )?.[1];
   const court = cleanValue(
     text
       .replace(/^.*?تم\s+الإيداع\s+القانوني\s*/u, "")
@@ -235,7 +266,7 @@ function extractFiling(lines) {
   return {
     court,
     date: dates[0] ?? null,
-    number: numberMatch?.[1] ?? null,
+    number: beforeNumber ?? afterNumber ?? null,
   };
 }
 
@@ -262,7 +293,7 @@ function extractBlock(lines, { starts, ends }) {
   if (!selected.length) return null;
   selected[0] = selected[0].includes(":")
     ? selected[0].split(":").slice(1).join(":")
-    : "";
+    : selected[0];
   return cleanValue(selected.join(" "));
 }
 

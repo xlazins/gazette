@@ -371,7 +371,7 @@ export function parseNotice(segment, metadata = {}) {
   const capital = detectCapital(text);
   const suspectFontMapping = SUSPECT_FONT_TERMS.filter((term) => folded.includes(term)).length >= 2;
 
-  const reviewReasons = [];
+  const reviewReasons = [...new Set(segment.reviewReasons ?? [])];
   if (truncated) reviewReasons.push("notice_text_trimmed_after_20000_characters");
   if (text.includes("\ufffd")) reviewReasons.push("source_text_has_unmapped_glyphs");
   if (suspectFontMapping) reviewReasons.push("source_text_has_suspect_font_mapping");
@@ -408,9 +408,11 @@ export function parseNotice(segment, metadata = {}) {
       publication_date: metadata.publicationDate || null,
       pdf_path: metadata.filename || null,
       source_url: metadata.sourceUrl || null,
+      extraction_engine: metadata.extractionEngine || "pdf-text-layer",
       pdf_pages: segment.pdfPages ?? [],
       printed_pages: segment.printedPages ?? [],
       notice_reference: segment.reference ?? null,
+      notice_reference_inferred: Boolean(segment.referenceInferred),
       regions: segment.sourceRegions ?? [],
     },
     company: {
@@ -560,10 +562,16 @@ function validRegisterNumber(value) {
 }
 
 function detectDates(text) {
-  const normalized = normalizeText(text).replace(/\s*\/\s*/g, "/");
+  const normalized = normalizeText(text)
+    .replace(/\s*([./-])\s*/g, "$1");
   const values = [];
-  for (const match of normalized.matchAll(/20\d{2}\/\d{1,2}\/\d{1,2}/g)) {
-    const value = normalizeDate(match[0]);
+  for (const match of normalized.matchAll(/\b20\d{2}[./-]\d{1,2}[./-]\d{1,2}\b/g)) {
+    const value = normalizeDate(match[0].replace(/[.-]/g, "/"));
+    if (value && !values.includes(value)) values.push(value);
+  }
+  for (const match of normalized.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/g)) {
+    const [day, month, year] = match[0].split(/[./-]/g);
+    const value = normalizeDate(`${year}/${month}/${day}`);
     if (value && !values.includes(value)) values.push(value);
   }
   const folded = foldArabic(text);
@@ -651,6 +659,15 @@ function detectBranchAddress(lines) {
 }
 
 function detectManagerOrLiquidator(lines) {
+  for (const line of lines) {
+    const liquidator = line.match(
+      /السيد(?:ة)?\s*\)?\s*([\p{Script=Arabic} ]{3,80}?)(?=\s+(?:و\s*)?عنوان|\s+بصفته|\s+كمصفي|\s+مصفيا|$)/u,
+    )?.[1];
+    if (liquidator && /مصفي/u.test(line)) {
+      const value = liquidator.replace(/\s+/gu, " ").trim();
+      if (value.length >= 3) return value;
+    }
+  }
   const stopwords = new Set([
     "المسير", "ملسير", "المصفي", "مصفي", "مصفية", "من", "طرف", "السيد", "السيدة",
     "تعيين", "وذ", "و",
@@ -680,7 +697,14 @@ function detectFiling(lines, dates) {
   lines.forEach((line, index) => {
     const folded = foldArabic(line);
     if (/(?:محكم|ملحكم)/.test(folded)) {
-      court = line.replace(/^[ .,:;-]+|[ .,:;-]+$/g, "");
+      const continuation = lines[index + 1] ?? "";
+      const courtContinuation = continuation
+        .split(/بتاريخ|تحت\s+رقم|\b\d{1,2}[./-]\d{1,2}[./-]20\d{2}\b/iu)[0]
+        .trim();
+      court = cleanField([
+        line,
+        courtContinuation,
+      ].filter(Boolean).join(" "));
     }
     if (
       /ايداع|اليداع|الي/.test(folded)
@@ -692,8 +716,12 @@ function detectFiling(lines, dates) {
   let number = null;
   if (filingIndex >= 0) {
     const tail = lines.slice(filingIndex, filingIndex + 6).join(" ");
-    const beforeLabel = tail.match(/(\d{1,10})\s+تحت\s+رقم/i)?.[1] ?? null;
-    const afterLabel = tail.match(/تحت\s+رقم\s*[:\-]?\s*(\d{1,10})/i)?.[1] ?? null;
+    const beforeLabel = tail.match(
+      /(?<![./\d])(\d{1,10})\s+تحت\s+رقم/i,
+    )?.[1] ?? null;
+    const afterLabel = tail.match(
+      /تحت\s+رقم\s*[:\-]?\s*(\d{1,10}(?:[./-]\d{1,10})*)/i,
+    )?.[1] ?? null;
     number = validFilingNumber(beforeLabel)
       ? beforeLabel
       : validFilingNumber(afterLabel)
@@ -730,6 +758,7 @@ function cleanField(value) {
 
 function validFilingNumber(value) {
   if (!value) return false;
+  if (/^\d{1,10}(?:[./-]\d{1,10})+$/u.test(value)) return true;
   const number = Number(value);
   return number > 0 && !(number >= 1900 && number <= 2100);
 }
