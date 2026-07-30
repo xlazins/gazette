@@ -5,7 +5,11 @@ import {
   parseNotice,
   pdfDateToIso,
 } from "../parser.mjs";
-import { httpDateToIso, officialPdfSource } from "../source-url.mjs";
+import {
+  httpDateToIso,
+  officialPdfSource,
+  parseContentRange,
+} from "../source-url.mjs";
 
 const kleat = parseNotice({
   text: `
@@ -77,6 +81,11 @@ assert.equal(
   httpDateToIso("Wed, 29 Apr 2026 10:51:30 GMT"),
   "2026-04-29",
 );
+assert.deepEqual(
+  parseContentRange("bytes 0-1048575/17876768"),
+  { start: 0, end: 1048575, total: 17876768 },
+);
+assert.equal(parseContentRange("bytes 10-5/20"), null);
 
 const officialSource = officialPdfSource(
   "https://www.sgg.gov.ma/BO/AR/3111/2026/BOAL_5922.pdf",

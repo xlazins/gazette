@@ -4,7 +4,11 @@ import {
   extractGazetteFile,
   inferIssueNumber,
 } from "./parser.mjs";
-import { httpDateToIso, officialPdfSource } from "./source-url.mjs";
+import {
+  httpDateToIso,
+  officialPdfSource,
+  parseContentRange,
+} from "./source-url.mjs";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "./vendor/pdf.worker.min.mjs",
@@ -79,6 +83,7 @@ const EVENT_LABELS = {
   MANAGER_CHANGE: "Manager change",
   SHARE_TRANSFER: "Share transfer",
 };
+const PDF_DOWNLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
 
 elements.fileInput.addEventListener("change", () => {
   selectFile(elements.fileInput.files?.[0] ?? null);
@@ -200,25 +205,88 @@ async function downloadOfficialPdf(value) {
   elements.statusTitle.textContent = "Downloading official issue";
   elements.statusDetail.textContent = source.filename;
 
-  const response = await fetch(source.fetchUrl);
-  if (!response.ok) {
-    throw new Error(`The official PDF returned ${response.status}.`);
-  }
+  const chunks = [];
+  let loaded = 0;
+  let total = null;
+  let fallbackPublicationDate = null;
+  let expectedEtag = null;
 
-  const blob = await response.blob();
-  if (
-    blob.type &&
-    !blob.type.toLowerCase().includes("application/pdf")
-  ) {
-    throw new Error("The official link did not return a PDF document.");
+  while (total === null || loaded < total) {
+    if (state.cancelled) throw new ExtractionCancelledError();
+    const end = loaded + PDF_DOWNLOAD_CHUNK_SIZE - 1;
+    const response = await fetch(source.fetchUrl, {
+      headers: {
+        Range: `bytes=${loaded}-${end}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`The official PDF returned ${response.status}.`);
+    }
+
+    if (!fallbackPublicationDate) {
+      fallbackPublicationDate = httpDateToIso(
+        response.headers.get("last-modified"),
+      );
+    }
+    const etag = response.headers.get("etag");
+    if (expectedEtag && etag && etag !== expectedEtag) {
+      throw new Error("The official PDF changed during download. Try again.");
+    }
+    expectedEtag ||= etag;
+
+    const contentRange = parseContentRange(
+      response.headers.get("content-range"),
+    );
+    if (response.status === 206) {
+      if (!contentRange || contentRange.start !== loaded) {
+        throw new Error("The official server returned an invalid PDF range.");
+      }
+      total ??= contentRange.total;
+      if (total !== contentRange.total) {
+        throw new Error("The official PDF size changed during download.");
+      }
+    } else if (loaded === 0 && response.status === 200) {
+      total = Number(response.headers.get("content-length")) || null;
+    } else {
+      throw new Error("The official server does not support PDF ranges.");
+    }
+
+    const chunk = await response.blob();
+    if (
+      loaded === 0 &&
+      chunk.type &&
+      !chunk.type.toLowerCase().includes("application/pdf")
+    ) {
+      throw new Error("The official link did not return a PDF document.");
+    }
+    if (!chunk.size) {
+      throw new Error("The official server returned an empty PDF range.");
+    }
+    chunks.push(chunk);
+    loaded += chunk.size;
+    if (total !== null && loaded > total) {
+      throw new Error("The official server returned too much PDF data.");
+    }
+
+    elements.progressBar.value = total
+      ? Math.round((loaded / total) * 100)
+      : 0;
+    elements.pageProgress.textContent = total
+      ? `${formatBytes(loaded)} of ${formatBytes(total)}`
+      : `${formatBytes(loaded)} downloaded`;
+    elements.statusDetail.textContent = `${source.filename} - ${elements.progressBar.value}%`;
+
+    if (response.status === 200) {
+      total = loaded;
+    }
   }
 
   return {
-    file: new File([blob], source.filename, {
+    file: new File(chunks, source.filename, {
       type: "application/pdf",
     }),
     originalUrl: source.originalUrl,
-    fallbackPublicationDate: httpDateToIso(response.headers.get("last-modified")),
+    fallbackPublicationDate,
   };
 }
 

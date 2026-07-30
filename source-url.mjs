@@ -38,3 +38,25 @@ export function httpDateToIso(value) {
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
 }
+
+export function parseContentRange(value) {
+  const match = String(value ?? "").match(
+    /^bytes\s+(\d+)-(\d+)\/(\d+)$/i,
+  );
+  if (!match) return null;
+  const [, startText, endText, totalText] = match;
+  const start = Number(startText);
+  const end = Number(endText);
+  const total = Number(totalText);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(total) ||
+    start < 0 ||
+    end < start ||
+    total <= end
+  ) {
+    return null;
+  }
+  return { start, end, total };
+}
