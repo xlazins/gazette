@@ -601,6 +601,10 @@ function detectCities(folded) {
     .map(([city]) => city);
 }
 
+export function detectCitiesFromText(text) {
+  return detectCities(foldArabic(text));
+}
+
 function fieldBlock(lines, matchesLabel, maxFollowing) {
   for (let index = 0; index < lines.length; index += 1) {
     if (!matchesLabel(foldArabic(lines[index]))) continue;

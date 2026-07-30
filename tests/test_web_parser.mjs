@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  detectCitiesFromText,
   extractGazetteFile,
   parseNotice,
   pdfDateToIso,
@@ -17,6 +18,11 @@ import {
   pageContentToLines,
 } from "../page-layout.mjs";
 import { parseOcrFields } from "../ocr-fields.mjs";
+import {
+  mergeOcrResult,
+  needsArabicOcr,
+  recordCacheKey,
+} from "../browser-ocr.mjs";
 
 const kleat = parseNotice({
   text: `
@@ -84,6 +90,10 @@ assert.ok(!continuation.event.types.includes("DISSOLUTION"));
 
 assert.equal(pdfDateToIso("D:20260429105130+01'00'"), "2026-04-29");
 assert.equal(pdfDateToIso("D:20261340"), null);
+assert.deepEqual(
+  detectCitiesFromText("المحكمة التجارية بالرباط ومدينة سطات"),
+  ["Settat", "Rabat"],
+);
 assert.equal(
   httpDateToIso("Wed, 29 Apr 2026 10:51:30 GMT"),
   "2026-04-29",
@@ -296,6 +306,86 @@ assert.equal(
   "محمد نادر احمد محمد الحمادي.",
 );
 assert.equal(incorporationFields.event.filing.date, "2026-01-06");
+
+const hybridRecord = structuredClone(kleat);
+hybridRecord.source.regions = [{
+  page: 332,
+  column: 0,
+  left: 10,
+  right: 100,
+  top: 700,
+  bottom: 100,
+  line_count: 20,
+}];
+hybridRecord.review_reasons.push("source_text_has_suspect_font_mapping");
+hybridRecord.needs_review = true;
+assert.equal(needsArabicOcr(hybridRecord), true);
+mergeOcrResult(hybridRecord, {
+  status: "complete",
+  engine: "tesseract.js",
+  engine_version: "7.0.0",
+  languages: ["ara", "eng"],
+  confidence: 87.2,
+  processed_at: "2026-07-30T20:00:00.000Z",
+  regions: [],
+  text: "نص عربي واضح",
+  fields: {
+    company: {
+      name: "KLEAT",
+      legal_form: "SARL AU",
+      commercial_register_number: "853",
+      registered_address: "مجمع الخير رقم 226",
+    },
+    event: {
+      primary_type: "BRANCH_OPENING",
+      decision_date: null,
+      business_purpose: null,
+      capital_mad: null,
+      branch_address: "بن قاصم ر1 و ر2 شارع بير انزاران رقم 48",
+      manager_or_liquidator: "قنوس يونس",
+      filing: {
+        court: "المحكمة الابتدائية بسطات",
+        date: "2026-04-08",
+        number: "122",
+      },
+    },
+  },
+});
+assert.equal(hybridRecord.company.commercial_register_number, "8523");
+assert.equal(hybridRecord.event.decision_date, "2026-02-26");
+assert.equal(hybridRecord.company.registered_address, "مجمع الخير رقم 226");
+assert.equal(
+  hybridRecord.event.branch_address,
+  "بن قاصم ر1 و ر2 شارع بير انزاران رقم 48",
+);
+assert.equal(hybridRecord.event.manager_or_liquidator, "قنوس يونس");
+assert.equal(hybridRecord.event.filing.number, "122");
+assert.equal(
+  hybridRecord.review_reasons.includes("source_text_has_suspect_font_mapping"),
+  false,
+);
+assert.equal(needsArabicOcr(hybridRecord), false);
+assert.match(recordCacheKey(hybridRecord), /^677I\|332\|KLEAT$/);
+
+const ocrNumericRecord = structuredClone(kleat);
+ocrNumericRecord.company.commercial_register_number = null;
+ocrNumericRecord.review_reasons.push("commercial_register_number_missing");
+mergeOcrResult(ocrNumericRecord, {
+  ...hybridRecord.ocr,
+  fields: {
+    ...hybridRecord.ocr.fields,
+    company: {
+      ...hybridRecord.ocr.fields.company,
+      commercial_register_number: "853",
+    },
+  },
+});
+assert.equal(ocrNumericRecord.company.commercial_register_number, "853");
+assert.ok(
+  ocrNumericRecord.review_reasons.includes(
+    "ocr_commercial_register_number_needs_review",
+  ),
+);
 
 console.log("web parser tests passed");
 

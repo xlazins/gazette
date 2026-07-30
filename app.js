@@ -3,12 +3,21 @@ import {
   ExtractionCancelledError,
   extractGazetteFile,
   inferIssueNumber,
-} from "./parser.mjs";
+} from "./parser.mjs?v=20260730-3";
 import {
   httpDateToIso,
   officialPdfSource,
   parseContentRange,
 } from "./source-url.mjs";
+import {
+  ArabicOcrEngine,
+  documentCacheKey,
+  loadOcrResults,
+  mergeOcrResult,
+  needsArabicOcr,
+  recordCacheKey,
+  saveOcrResult,
+} from "./browser-ocr.mjs?v=20260730-4";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "./vendor/pdf.worker.min.mjs",
@@ -48,6 +57,12 @@ const elements = {
   emptyState: document.querySelector("#empty-state"),
   exportJson: document.querySelector("#export-json"),
   exportCsv: document.querySelector("#export-csv"),
+  runOcr: document.querySelector("#run-ocr"),
+  ocrRunStatus: document.querySelector("#ocr-run-status"),
+  ocrStatusTitle: document.querySelector("#ocr-status-title"),
+  ocrStatusDetail: document.querySelector("#ocr-status-detail"),
+  ocrProgress: document.querySelector("#ocr-progress"),
+  stopOcr: document.querySelector("#stop-ocr"),
   dialog: document.querySelector("#record-dialog"),
   dialogReference: document.querySelector("#dialog-reference"),
   dialogTitle: document.querySelector("#dialog-title"),
@@ -66,6 +81,11 @@ const state = {
   dialogRecord: null,
   dialogPageIndex: 0,
   dialogZoom: 1,
+  ocrEngine: null,
+  ocrRunning: false,
+  ocrCancelled: false,
+  ocrDocumentKey: null,
+  ocrBatchPosition: null,
 };
 
 const EVENT_LABELS = {
@@ -112,6 +132,7 @@ elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (
     state.running ||
+    state.ocrRunning ||
     (!state.file && !elements.sourceUrl.value.trim())
   ) {
     return;
@@ -145,6 +166,7 @@ elements.sourceUrl.addEventListener("input", () => {
     elements.dropDetail.textContent = "Official SGG BOAL issues are supported";
   }
   state.activeFile = null;
+  state.ocrDocumentKey = null;
   resetViewerDocument();
   const inferredIssue = inferIssueNumber(elements.sourceUrl.value);
   if (!elements.issueNumber.value && inferredIssue) {
@@ -155,6 +177,13 @@ elements.sourceUrl.addEventListener("input", () => {
 
 elements.exportJson.addEventListener("click", exportJson);
 elements.exportCsv.addEventListener("click", exportCsv);
+elements.runOcr.addEventListener("click", runFlaggedOcr);
+elements.stopOcr.addEventListener("click", () => {
+  state.ocrCancelled = true;
+  elements.ocrStatusTitle.textContent = "Stopping Arabic OCR";
+  elements.ocrStatusDetail.textContent = "Finishing the current notice";
+  elements.stopOcr.disabled = true;
+});
 elements.closeDialog.addEventListener("click", () => elements.dialog.close());
 elements.dialog.addEventListener("click", (event) => {
   if (event.target === elements.dialog) elements.dialog.close();
@@ -169,6 +198,7 @@ function selectFile(file) {
   hideError();
   resetViewerDocument();
   state.activeFile = null;
+  state.ocrDocumentKey = null;
   if (!file) {
     state.file = null;
     elements.dropZone.classList.remove("has-file");
@@ -197,6 +227,7 @@ function selectFile(file) {
 function updateExtractButton() {
   elements.extractButton.disabled =
     state.running ||
+    state.ocrRunning ||
     (!state.file && !elements.sourceUrl.value.trim());
 }
 
@@ -354,11 +385,16 @@ async function runExtraction() {
       },
     );
     state.payload = payload;
+    state.ocrDocumentKey = documentCacheKey(state.activeFile, payload);
+    const restoredOcr = await restoreCachedOcr();
     if (!elements.publicationDate.value && payload.summary.publication_date) {
       elements.publicationDate.value = payload.summary.publication_date;
     }
     elements.statusTitle.textContent = "Extraction complete";
-    elements.statusDetail.textContent = `${payload.summary.records.toLocaleString()} records retained from ${payload.summary.segments_examined.toLocaleString()} notice segments`;
+    elements.statusDetail.textContent = [
+      `${payload.summary.records.toLocaleString()} records retained from ${payload.summary.segments_examined.toLocaleString()} notice segments`,
+      restoredOcr ? `${restoredOcr.toLocaleString()} saved OCR results restored` : null,
+    ].filter(Boolean).join(" - ");
     elements.progressBar.value = 100;
     elements.cancelButton.hidden = true;
     renderResults();
@@ -385,28 +421,21 @@ async function runExtraction() {
 
 function renderResults() {
   const { summary, records } = state.payload;
+  recalculateSummary();
   elements.statRecords.textContent = summary.records.toLocaleString();
   elements.statReview.textContent = summary.records_needing_review.toLocaleString();
   elements.statSegments.textContent = summary.segments_examined.toLocaleString();
   elements.statPages.textContent = summary.document_pages.toLocaleString();
   elements.search.value = "";
   elements.reviewFilter.value = "";
-  elements.cityFilter.replaceChildren(new Option("All cities", ""));
-  const cities = [...new Set(
-    records.flatMap((record) => record.company.cities_mentioned),
-  )].sort((a, b) => a.localeCompare(b));
-  for (const city of cities) {
-    elements.cityFilter.add(new Option(city, city));
-  }
-  if (records.some((record) => !record.company.cities_mentioned.length)) {
-    elements.cityFilter.add(new Option("City not detected", "__unknown__"));
-  }
+  refreshCityFilter();
   elements.eventFilter.replaceChildren(new Option("All events", ""));
   const events = [...new Set(records.map((record) => record.event.primary_type))].sort();
   for (const event of events) {
     elements.eventFilter.add(new Option(EVENT_LABELS[event] ?? titleCase(event), event));
   }
   renderRecords();
+  updateOcrButton();
   elements.results.hidden = false;
   elements.results.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -465,6 +494,7 @@ function renderRecords() {
 
   elements.visibleCount.textContent = `${filtered.length.toLocaleString()} shown`;
   elements.emptyState.hidden = filtered.length > 0;
+  updateOcrButton();
 }
 
 function companyCell(record) {
@@ -504,7 +534,9 @@ function confidenceCell(record) {
   score.textContent = `${Math.round(record.confidence * 100)}%`;
   const badge = document.createElement("span");
   badge.className = `review-badge${record.needs_review ? "" : " ready"}`;
-  badge.textContent = record.needs_review ? "Review" : "Ready";
+  badge.textContent = record.ocr?.status === "complete"
+    ? `OCR ${Math.round(record.ocr.confidence)}%`
+    : record.needs_review ? "Review" : "Ready";
   wrapper.append(score, badge);
   cell.append(wrapper);
   return cell;
@@ -520,9 +552,11 @@ function openRecord(record) {
   ].filter(Boolean).join(" - ");
   elements.dialogTitle.textContent = record.company.name || "Name not detected";
   elements.dialogTitle.dir = "auto";
+  const ocrSection = createOcrActionSection(record);
   const sourceSection = createSourcePageSection(record);
   elements.dialogBody.replaceChildren(
     ...[
+      ocrSection,
       sourceSection,
     detailSection("Company", [
       ["Legal form", record.company.legal_form],
@@ -547,6 +581,9 @@ function openRecord(record) {
       ["Publication date", record.source.publication_date],
       ["Printed page", record.source.printed_pages.join(", ")],
       ["Confidence", `${Math.round(record.confidence * 100)}%`],
+      ["Arabic OCR", record.ocr?.status === "complete"
+        ? `${Math.round(record.ocr.confidence)}% confidence`
+        : null],
       ["Source URL", record.source.source_url],
     ]),
     ].filter(Boolean),
@@ -581,10 +618,51 @@ function openRecord(record) {
     section.append(heading, raw);
     elements.dialogBody.append(section);
   }
-  elements.dialog.showModal();
+  if (record.ocr?.text) {
+    const section = document.createElement("details");
+    section.className = "detail-section machine-text-section";
+    const heading = document.createElement("summary");
+    heading.textContent = "Arabic OCR transcript";
+    const raw = document.createElement("pre");
+    raw.className = "raw-text";
+    raw.dir = "rtl";
+    raw.lang = "ar";
+    raw.textContent = record.ocr.text;
+    section.append(heading, raw);
+    elements.dialogBody.append(section);
+  }
+  if (!elements.dialog.open) elements.dialog.showModal();
   if (sourceSection) {
     requestAnimationFrame(() => renderDialogSourcePage());
   }
+}
+
+function createOcrActionSection(record) {
+  if (!state.activeFile || !sourceSlices(record).some((source) => source.region)) {
+    return null;
+  }
+  const section = document.createElement("section");
+  section.className = "ocr-action-section";
+  const copy = document.createElement("div");
+  const title = document.createElement("strong");
+  const detail = document.createElement("span");
+  if (record.ocr?.status === "complete") {
+    title.textContent = "Arabic text read locally";
+    detail.textContent = `${Math.round(record.ocr.confidence)}% OCR confidence - PDF numbers and dates kept when available`;
+  } else {
+    title.textContent = "Repair the Arabic text layer";
+    detail.textContent = "Reads this notice image locally and updates its structured fields";
+  }
+  copy.append(title, detail);
+
+  const button = document.createElement("button");
+  button.className = "secondary-button";
+  button.type = "button";
+  button.textContent = record.ocr?.status === "complete" ? "Run again" : "Run Arabic OCR";
+  button.disabled = state.ocrRunning;
+  button.addEventListener("click", () => runRecordOcr(record));
+  section.append(copy, button);
+  return section;
 }
 
 function createSourcePageSection(record) {
@@ -679,16 +757,7 @@ async function renderDialogSourcePage() {
   let renderTask = null;
   try {
     state.pageRenderTask?.cancel?.();
-    if (!state.viewerDocumentPromise) {
-      state.viewerDocumentPromise = state.activeFile.arrayBuffer().then((buffer) => (
-        pdfjs.getDocument({
-          data: new Uint8Array(buffer),
-          stopAtErrors: false,
-          useSystemFonts: true,
-        }).promise
-      ));
-    }
-    const pdfDocument = await state.viewerDocumentPromise;
+    const pdfDocument = await getViewerDocument();
     const page = await pdfDocument.getPage(pageNumber);
     const baseViewport = page.getViewport({ scale: 1 });
     const availableWidth = Math.max(320, section.clientWidth - 4);
@@ -775,6 +844,204 @@ function sourceSlices(record) {
     .map((page) => ({ page, region: null }));
 }
 
+async function getViewerDocument() {
+  if (!state.activeFile) throw new Error("No active PDF is available.");
+  if (!state.viewerDocumentPromise) {
+    state.viewerDocumentPromise = state.activeFile.arrayBuffer().then((buffer) => (
+      pdfjs.getDocument({
+        data: new Uint8Array(buffer),
+        stopAtErrors: false,
+        useSystemFonts: true,
+      }).promise
+    ));
+  }
+  return state.viewerDocumentPromise;
+}
+
+async function runFlaggedOcr() {
+  const records = (state.payload?.records || []).filter(needsArabicOcr);
+  if (!records.length) return;
+  await runOcrQueue(records);
+}
+
+async function runRecordOcr(record) {
+  if (state.ocrRunning) return;
+  await runOcrQueue([record], { rerun: true });
+}
+
+async function runOcrQueue(records, { rerun = false } = {}) {
+  if (state.ocrRunning || !state.activeFile || !records.length) return;
+  state.ocrRunning = true;
+  state.ocrCancelled = false;
+  state.ocrBatchPosition = { current: 0, total: records.length, record: null };
+  elements.ocrRunStatus.hidden = false;
+  elements.stopOcr.hidden = false;
+  elements.stopOcr.disabled = false;
+  elements.ocrProgress.value = 0;
+  elements.fileInput.disabled = true;
+  elements.sourceUrl.disabled = true;
+  updateExtractButton();
+  updateOcrButton();
+  if (state.dialogRecord) openRecord(state.dialogRecord);
+
+  let completed = 0;
+  let failed = 0;
+  try {
+    const pdfDocument = await getViewerDocument();
+    const engine = getOcrEngine();
+    for (const [index, record] of records.entries()) {
+      if (state.ocrCancelled) break;
+      state.ocrBatchPosition = {
+        current: index,
+        total: records.length,
+        record,
+      };
+      const company = record.company.name || sourceLabel(record);
+      elements.ocrStatusTitle.textContent = rerun && records.length === 1
+        ? "Reading this notice"
+        : `Reading notice ${index + 1} of ${records.length}`;
+      elements.ocrStatusDetail.textContent = company;
+      elements.ocrProgress.value = Math.round((index / records.length) * 100);
+
+      const previousOcr = record.ocr;
+      try {
+        const ocr = await engine.recognizeRecord(pdfDocument, record);
+        mergeOcrResult(record, ocr);
+        completed += 1;
+        if (state.ocrDocumentKey) {
+          try {
+            await saveOcrResult(state.ocrDocumentKey, record, ocr);
+          } catch (storageError) {
+            console.warn("The OCR result could not be stored locally.", storageError);
+          }
+        }
+      } catch (error) {
+        failed += 1;
+        console.error(error);
+        if (previousOcr) record.ocr = previousOcr;
+        else delete record.ocr;
+      }
+
+      recalculateSummary();
+      refreshCityFilter();
+      renderRecords();
+      if (state.dialogRecord === record) openRecord(record);
+    }
+
+    const stopped =
+      state.ocrCancelled && completed + failed < records.length;
+    elements.ocrStatusTitle.textContent = stopped
+      ? "Arabic OCR stopped"
+      : failed ? "Arabic OCR finished with errors" : "Arabic OCR complete";
+    elements.ocrStatusDetail.textContent = [
+      `${completed.toLocaleString()} notice${completed === 1 ? "" : "s"} saved`,
+      failed ? `${failed.toLocaleString()} failed` : null,
+      stopped ? "Run again to resume the remaining records" : null,
+    ].filter(Boolean).join(" - ");
+    elements.ocrProgress.value = stopped
+      ? Math.round(((completed + failed) / records.length) * 100)
+      : 100;
+    elements.stopOcr.hidden = true;
+  } finally {
+    state.ocrRunning = false;
+    state.ocrBatchPosition = null;
+    elements.fileInput.disabled = false;
+    elements.sourceUrl.disabled = false;
+    updateExtractButton();
+    updateOcrButton();
+    recalculateSummary();
+    elements.statReview.textContent =
+      state.payload.summary.records_needing_review.toLocaleString();
+    if (state.dialogRecord) openRecord(state.dialogRecord);
+  }
+}
+
+function getOcrEngine() {
+  if (!state.ocrEngine) {
+    state.ocrEngine = new ArabicOcrEngine({
+      onProgress: updateOcrProgress,
+    });
+  }
+  return state.ocrEngine;
+}
+
+function updateOcrProgress({ status, progress = 0 } = {}) {
+  const position = state.ocrBatchPosition;
+  if (!state.ocrRunning || !position) return;
+  const localProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+  const totalProgress = (
+    (position.current + localProgress) /
+    Math.max(1, position.total)
+  ) * 100;
+  elements.ocrProgress.value = Math.round(totalProgress);
+  if (status) {
+    const company = position.record?.company.name || "notice";
+    elements.ocrStatusDetail.textContent =
+      `${company} - ${titleCase(String(status).replaceAll(" ", "_"))}`;
+  }
+}
+
+function updateOcrButton() {
+  const records = state.payload?.records || [];
+  const pending = records.filter(needsArabicOcr).length;
+  const complete = records.filter((record) => record.ocr?.status === "complete").length;
+  elements.runOcr.disabled =
+    state.ocrRunning || !state.activeFile || pending === 0;
+  elements.runOcr.textContent = state.ocrRunning
+    ? "Arabic OCR running"
+    : pending
+      ? `Arabic OCR (${pending.toLocaleString()})`
+      : complete
+        ? `OCR complete (${complete.toLocaleString()})`
+        : "Arabic OCR";
+}
+
+async function restoreCachedOcr() {
+  if (!state.ocrDocumentKey || !state.payload) return 0;
+  try {
+    const cached = await loadOcrResults(state.ocrDocumentKey);
+    let restored = 0;
+    for (const record of state.payload.records) {
+      const ocr = cached.get(recordCacheKey(record));
+      if (!ocr) continue;
+      mergeOcrResult(record, ocr);
+      restored += 1;
+    }
+    recalculateSummary();
+    return restored;
+  } catch (error) {
+    console.warn("Saved OCR results could not be restored.", error);
+    return 0;
+  }
+}
+
+function recalculateSummary() {
+  if (!state.payload) return;
+  state.payload.summary.records = state.payload.records.length;
+  state.payload.summary.records_needing_review =
+    state.payload.records.filter((record) => record.needs_review).length;
+  state.payload.summary.records_with_ocr =
+    state.payload.records.filter((record) => record.ocr?.status === "complete").length;
+}
+
+function refreshCityFilter() {
+  const records = state.payload?.records || [];
+  const selected = elements.cityFilter.value;
+  elements.cityFilter.replaceChildren(new Option("All cities", ""));
+  const cities = [...new Set(
+    records.flatMap((record) => record.company.cities_mentioned || []),
+  )].sort((a, b) => a.localeCompare(b));
+  for (const city of cities) {
+    elements.cityFilter.add(new Option(city, city));
+  }
+  if (records.some((record) => !record.company.cities_mentioned?.length)) {
+    elements.cityFilter.add(new Option("City not detected", "__unknown__"));
+  }
+  if ([...elements.cityFilter.options].some((option) => option.value === selected)) {
+    elements.cityFilter.value = selected;
+  }
+}
+
 function detailSection(title, pairs) {
   const section = document.createElement("section");
   section.className = "detail-section";
@@ -813,7 +1080,8 @@ function exportCsv() {
     "business_purpose", "capital_mad", "branch_address", "manager_or_liquidator",
     "filing_court", "filing_date", "filing_number", "issue_number", "publication_date",
     "pdf_pages", "printed_pages", "notice_reference", "source_url", "confidence",
-    "needs_review", "review_reasons", "raw_text",
+    "needs_review", "review_reasons", "ocr_status", "ocr_confidence",
+    "ocr_processed_at", "ocr_text", "raw_text",
   ];
   const rows = state.payload.records.map((record) => [
     record.company.name,
@@ -841,6 +1109,10 @@ function exportCsv() {
     record.confidence,
     record.needs_review,
     record.review_reasons.join("|"),
+    record.ocr?.status,
+    record.ocr?.confidence,
+    record.ocr?.processed_at,
+    record.ocr?.text,
     record.raw_text,
   ]);
   const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");

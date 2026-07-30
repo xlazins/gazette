@@ -16,6 +16,8 @@ possible and can be overridden under optional metadata. The application:
 - classifies company events and extracts evidence fields;
 - retains notices from every detected city, with city filtering after extraction;
 - provides review flags, machine text and exact notice-box renderings;
+- repairs damaged Arabic text with free, local Tesseract OCR per record or as a
+  resumable batch;
 - exports the result as structured JSON or UTF-8 CSV.
 
 An uploaded PDF never leaves the browser. A pasted official link is downloaded
@@ -36,7 +38,7 @@ Each notice becomes an event record with:
   liquidation closure and removal from the register;
 - dates, business purpose, capital, branch address, manager or liquidator, and
   legal filing details when present;
-- confidence, review reasons and the original notice text.
+- confidence, review reasons, the original notice text and OCR provenance.
 
 The output is evidence-oriented. Missing or damaged fields remain `null`; the
 extractor does not invent values.
@@ -104,15 +106,20 @@ The browser record dialog renders those fragments in order, so a notice split
 at a page boundary remains one reviewable company record.
 
 Some SGG issues contain damaged Arabic Unicode mappings even though the printed
-page is correct. `tools/ocr-notice.mjs` is the focused accuracy utility for
-those records: it locates a notice by reference, renders all of its stored
-regions, runs free local Arabic OCR, and combines the OCR prose with exact
-dates and numbers retained by the embedded PDF text. `ocr-fields.mjs` then
-extracts labeled fields without a generative model. The browser uploader does
-not yet run OCR over an entire issue because doing so synchronously for
-thousands of boxes would be slow; damaged records remain explicitly flagged.
+page is correct. The browser renders only a notice's stored regions and runs
+the bundled Arabic and English Tesseract models locally. OCR can be run for one
+record in the source dialog or for all pending records with a stoppable batch.
+Every completed record is saved in IndexedDB and restored when the same PDF is
+extracted again.
 
-PDF.js is vendored under the Apache-2.0 license in `vendor/`.
+The hybrid merge keeps embedded company headings, dates and numeric identifiers
+when they already exist, while OCR repairs Arabic prose and fills missing
+fields. Mixed-script artifacts and low-confidence readings remain review flags.
+`tools/ocr-notice.mjs` provides the same focused workflow from the command line.
+
+PDF.js, Tesseract.js, Tesseract.js Core and the language models are vendored
+under the Apache-2.0 license in `vendor/`; license notices are in
+`vendor/licenses/`.
 
 ## Real-Issue Validation
 
@@ -121,14 +128,14 @@ The browser extractor was run across every page of official issue 5922:
 - 709 PDF pages;
 - 1,941 completed notice segments;
 - 1,486 company-event records retained across all cities;
-- 425 retained records span more than one PDF page;
+- 420 retained records span more than one PDF page;
 - KLEAT identified as a branch opening, RC `8523`, dated `2026-02-26`;
 - SAFRES identified as a dissolution, RC `5059`, dated `2026-03-27`;
 - the legal advertiser `FORMAFID CONSEIL` is not mistaken for SAFRES;
 - cross-page notice `42P` retains its complete purpose and filing section;
 - Settat postal code `26000` is not accepted as a commercial-register number.
 
-Records affected by this issue's damaged Arabic text layer remain reviewable.
-Names, dates and register numbers can still be high-confidence, while affected
-addresses and personal names remain flagged or `null`. The API dataset contains
-the same all-city extraction and accepts `city` as a query filter.
+Records affected by this issue's damaged Arabic text layer can be repaired in
+the browser and remain reviewable whenever OCR still contains suspicious text.
+The API dataset contains the same all-city extraction and accepts `city` as a
+query filter.

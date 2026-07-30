@@ -228,6 +228,87 @@
     },
     "raw_text": {
       "type": ["string", "null"]
+    },
+    "ocr": {
+      "type": "object",
+      "required": [
+        "status",
+        "engine",
+        "engine_version",
+        "languages",
+        "confidence",
+        "processed_at",
+        "regions",
+        "text",
+        "fields",
+        "source_review_reasons"
+      ],
+      "properties": {
+        "status": {
+          "const": "complete"
+        },
+        "engine": {
+          "const": "tesseract.js"
+        },
+        "engine_version": {
+          "type": "string"
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "processed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["page", "confidence", "text"],
+            "properties": {
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": ["integer", "null"]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "source_review_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

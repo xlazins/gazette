@@ -8,7 +8,7 @@
       content="Extract structured Moroccan company events from official BOAL Gazette PDFs."
     >
     <title>BOAL Extractor</title>
-    <link rel="stylesheet" href="/styles.css?v=20260730">
+    <link rel="stylesheet" href="/styles.css?v=20260730-3">
   </head>
   <body>
     <header class="app-header">
@@ -104,6 +104,9 @@
             <h2 id="results-heading">Company events</h2>
           </div>
           <div class="export-actions">
+            <button class="secondary-button" id="run-ocr" type="button">
+              Arabic OCR
+            </button>
             <button class="secondary-button" id="export-json" type="button">
               <span aria-hidden="true">&#8595;</span> JSON
             </button>
@@ -130,6 +133,17 @@
             <span>PDF pages</span>
             <strong id="stat-pages">0</strong>
           </div>
+        </div>
+
+        <div class="ocr-run-status" id="ocr-run-status" hidden aria-live="polite">
+          <div class="status-line">
+            <div>
+              <strong id="ocr-status-title">Reading Arabic text</strong>
+              <span id="ocr-status-detail">Preparing the local OCR engine</span>
+            </div>
+            <button class="text-button danger" id="stop-ocr" type="button">Stop</button>
+          </div>
+          <progress id="ocr-progress" max="100" value="0"></progress>
         </div>
 
         <div class="result-toolbar">
@@ -196,6 +210,6 @@
       <div class="dialog-body" id="dialog-body"></div>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260730"></script>
+    <script type="module" src="/app.js?v=20260730-7"></script>
   </body>
 </html>
